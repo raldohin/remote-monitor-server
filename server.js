@@ -10,12 +10,13 @@ const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
-  }
+  },
+  transports: ['websocket', 'polling']
 });
 
 const PORT = process.env.PORT || 3000;
 
-let phoneSocketId = null;
+let lastSenderId = null;
 
 app.use(express.static(path.join(__dirname, 'viewer')));
 
@@ -26,47 +27,39 @@ app.get('/', (req, res) => {
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
 
+  // If phone registers or sends telemetry
   socket.on('register', (role) => {
-    socket.join(role);
     if (role === 'sender' || role === 'phone') {
-      phoneSocketId = socket.id;
+      lastSenderId = socket.id;
       io.emit('phone_status', { online: true });
-      console.log('Phone locked:', phoneSocketId);
+      console.log('Phone registered:', socket.id);
     } else if (role === 'viewer') {
-      socket.emit('phone_status', { online: phoneSocketId !== null });
+      socket.emit('phone_status', { online: lastSenderId !== null });
     }
   });
 
   socket.on('heartbeat', () => {
-    phoneSocketId = socket.id;
+    lastSenderId = socket.id;
     io.emit('phone_status', { online: true });
   });
 
-  // Targeted signal relay
-  socket.on('signal', (data) => {
-    if (socket.id === phoneSocketId) {
-      // Forward offer/candidates from phone directly to viewers
-      socket.to('viewer').emit('signal', data);
-    } else if (phoneSocketId) {
-      // Forward answer/candidates from viewer directly to the phone
-      io.to(phoneSocketId).emit('signal', data);
-    }
+  socket.on('telemetry', (data) => {
+    lastSenderId = socket.id;
+    io.emit('phone_status', { online: true });
+    socket.broadcast.emit('telemetry', data);
   });
 
-  socket.on('telemetry', (data) => {
-    phoneSocketId = socket.id;
-    socket.to('viewer').emit('telemetry', data);
+  socket.on('signal', (data) => {
+    socket.broadcast.emit('signal', data);
   });
 
   socket.on('command', (data) => {
-    if (phoneSocketId) {
-      io.to(phoneSocketId).emit('command', data);
-    }
+    socket.broadcast.emit('command', data);
   });
 
   socket.on('disconnect', () => {
-    if (socket.id === phoneSocketId) {
-      phoneSocketId = null;
+    if (socket.id === lastSenderId) {
+      lastSenderId = null;
       io.emit('phone_status', { online: false });
       console.log('Phone disconnected');
     }
@@ -74,5 +67,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

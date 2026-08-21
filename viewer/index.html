@@ -7,208 +7,79 @@
   <script src="/socket.io/socket.io.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body {
-      background: #0f172a;
-      color: #f8fafc;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
-    }
-
-    /* Auth & Pair Modals */
-    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px; width: 360px; padding: 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); }
-    .modal h2 { font-size: 1.2rem; color: #fff; text-align: center; }
-    .input-field { background: #0f172a; border: 1px solid #334155; color: #fff; padding: 10px 14px; border-radius: 6px; font-size: 14px; outline: none; width: 100%; }
-    .input-field:focus { border-color: #38bdf8; }
-    .btn-modal { background: #2563eb; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; transition: background 0.2s; }
-    .btn-modal:hover { background: #1d4ed8; }
-    .link-btn { background: none; border: none; color: #38bdf8; cursor: pointer; font-size: 12px; text-decoration: underline; }
-    .error-msg { color: #f87171; font-size: 12px; text-align: center; }
-
-    /* Layout */
-    .header-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      width: 100%;
-      max-width: 1100px;
-      margin-bottom: 20px;
-    }
-    .btn-group {
-      display: flex;
-      gap: 10px;
-    }
-    .container {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-      justify-content: center;
-      width: 100%;
-      max-width: 1100px;
-    }
-    .video-card, .telemetry-card {
-      background: #1e293b;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
-    }
-    .video-card { flex: 2; min-width: 320px; }
-    .telemetry-card { flex: 1; min-width: 280px; }
-    video {
-      width: 100%;
-      height: 380px;
-      border-radius: 8px;
-      background: #000;
-      object-fit: cover;
-    }
-    .btn {
-      background: #2563eb;
-      color: white;
-      border: none;
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .btn-secondary {
-      background: #475569;
-    }
-    .btn-secondary:hover:not(:disabled) {
-      background: #64748b;
-    }
-    .btn:disabled {
-      background: #334155;
-      color: #64748b;
-      cursor: not-allowed;
-    }
-    .metric {
-      margin: 12px 0;
-      padding: 10px;
-      background: #334155;
-      border-radius: 6px;
-    }
-    .metric-title { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; }
-    .metric-value { font-size: 1.05rem; font-weight: 600; margin-top: 4px; display: flex; align-items: center; word-break: break-all; font-family: monospace; }
-    .badge {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 0.85rem;
-      font-weight: bold;
-      margin-left: 8px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .badge-excellent { background: #22c55e; color: #000; }
-    .badge-good { background: #84cc16; color: #000; }
-    .badge-medium { background: #eab308; color: #000; }
-    .badge-weak { background: #f97316; color: #fff; }
-    .badge-lost { background: #ef4444; color: #fff; }
-    .status {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #ef4444;
-      margin-right: 8px;
-    }
-    .status.online { background: #22c55e; }
+    body { background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    header { background: #161b22; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+    .status-badge { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
+    .dot.online { background: #238636; box-shadow: 0 0 8px #238636; }
+    main { display: grid; grid-template-columns: 1fr 360px; gap: 16px; padding: 16px; flex: 1; min-height: 0; }
+    .video-container { background: #000; border-radius: 8px; border: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .controls-overlay { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; background: rgba(22, 27, 34, 0.85); padding: 8px 16px; border-radius: 30px; border: 1px solid #30363d; }
+    button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: background 0.2s; }
+    button:hover { background: #2ea043; }
+    button.btn-danger { background: #da3633; }
+    button.btn-danger:hover { background: #b62324; }
+    button.btn-sec { background: #21262d; border: 1px solid #30363d; }
+    button.btn-sec:hover { background: #30363d; }
+    .sidebar { background: #161b22; border-radius: 8px; border: 1px solid #30363d; display: flex; flex-direction: column; padding: 16px; gap: 16px; overflow-y: auto; }
+    .card { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; }
+    .card h3 { font-size: 13px; text-transform: uppercase; color: #8b949e; margin-bottom: 8px; letter-spacing: 0.5px; }
+    .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #21262d; gap: 8px; }
+    .metric-row:last-child { border-bottom: none; }
+    .val { color: #58a6ff; font-family: monospace; font-weight: 600; text-align: right; word-break: break-all; }
   </style>
 </head>
 <body>
+  <header>
+    <h2>Remote Camera & Telemetry Dashboard</h2>
+    <div class="status-badge">
+      <div id="phone-dot" class="dot"></div>
+      <span id="phone-status-text">Phone Offline</span>
+    </div>
+  </header>
 
-  <!-- Auth Modal -->
-  <div id="auth-modal" class="overlay">
-    <div class="modal">
-      <h2 id="auth-title">Sign In</h2>
-      <input type="text" id="auth-user" class="input-field" placeholder="Username" />
-      <input type="password" id="auth-pass" class="input-field" placeholder="Password" />
-      <button class="btn-modal" onclick="handleAuthSubmit()" id="auth-submit-btn">Login</button>
-      <button class="link-btn" onclick="toggleAuthMode()" id="auth-toggle-btn">Need an account? Sign Up</button>
-      <div id="auth-error" class="error-msg"></div>
+  <main>
+    <div class="video-container">
+      <video id="remote-video" autoplay playsinline muted></video>
+      <div class="controls-overlay">
+        <button id="btn-toggle" onclick="toggleStream()">Start Remote View</button>
+        <button class="btn-sec" onclick="sendCommand('switch_camera')">🔄 Switch Camera</button>
+      </div>
     </div>
-  </div>
 
-  <!-- Device Pairing Modal -->
-  <div id="pair-modal" class="overlay" style="display: none;">
-    <div class="modal">
-      <h2>Pair Remote Device</h2>
-      <p style="font-size: 12px; color: #94a3b8; text-align: center;">Enter the Device ID generated on your phone.</p>
-      <input type="text" id="target-device-id" class="input-field" placeholder="e.g. CAM-4892" style="text-transform: uppercase; text-align: center; font-size: 1.1rem; font-weight: bold; letter-spacing: 2px;" />
-      <button class="btn-modal" onclick="pairDevice()">Connect Device</button>
-      <div id="pair-error" class="error-msg"></div>
-    </div>
-  </div>
+    <div class="sidebar">
+      <div class="card">
+        <h3>Stream Metrics</h3>
+        <div class="metric-row"><span>Signaling:</span><span id="sig-status" class="val">Connecting</span></div>
+        <div class="metric-row"><span>WebRTC State:</span><span id="rtc-status" class="val">Idle</span></div>
+      </div>
 
-  <div class="header-bar">
-    <div>
-      <h2><span id="phone-status" class="status"></span>Remote Phone Monitor</h2>
-      <span id="paired-device-label" style="font-size: 12px; color: #94a3b8;">No Device Paired</span>
-    </div>
-    <div class="btn-group">
-      <button class="btn btn-secondary" onclick="openPairModal()">🔑 Change Device</button>
-      <button id="switchCamBtn" class="btn btn-secondary" onclick="switchCamera()" disabled>🔄 Switch Camera</button>
-      <button id="streamBtn" class="btn" onclick="toggleStream()" disabled>Waiting for Phone...</button>
-    </div>
-  </div>
-  
-  <div class="container">
-    <div class="video-card">
-      <video id="remoteVideo" autoplay playsinline muted></video>
-    </div>
-    
-    <div class="telemetry-card">
-      <h3>Live Telemetry</h3>
-      
-      <div class="metric">
-        <div class="metric-title">Signal Quality & Latency</div>
-        <div id="signal-value" class="metric-value">
-          <span>--</span>
-          <span class="badge badge-lost">Lost Signal</span>
+      <div class="card">
+        <h3>GPS Coordinates</h3>
+        <div class="metric-row">
+          <span>Position:</span>
+          <span id="gps-coords" class="val">--</span>
+        </div>
+        <div class="metric-row">
+          <span>Accuracy:</span>
+          <span id="gps-acc" class="val">-- m</span>
         </div>
       </div>
 
-      <div class="metric">
-        <div class="metric-title">Phone Connection</div>
-        <div id="conn-status" class="metric-value">Awaiting pairing...</div>
-      </div>
-      
-      <div class="metric">
-        <div class="metric-title">Coordinates (DMS)</div>
-        <div id="coords" class="metric-value">--</div>
-      </div>
-      
-      <div class="metric">
-        <div class="metric-title">Heading / Orientation</div>
-        <div id="heading" class="metric-value">--°</div>
-      </div>
-      
-      <div class="metric">
-        <div class="metric-title">Accelerometer (X, Y, Z)</div>
-        <div id="accel" class="metric-value">--</div>
+      <div class="card">
+        <h3>Device Orientation</h3>
+        <div class="metric-row"><span>Pitch (X):</span><span id="ori-x" class="val">--°</span></div>
+        <div class="metric-row"><span>Roll (Y):</span><span id="ori-y" class="val">--°</span></div>
+        <div class="metric-row"><span>Azimuth (Z):</span><span id="ori-z" class="val">--°</span></div>
       </div>
     </div>
-  </div>
+  </main>
 
   <script>
-    let socket = null;
+    const socket = io();
     let peerConnection = null;
     let isStreaming = false;
-    let lastPongTime = Date.now();
-    let isSenderAvailable = false;
-    let isRegisterMode = false;
-    let pairedDeviceId = null;
-
-    const remoteVideo = document.getElementById('remoteVideo');
-    const phoneStatusDot = document.getElementById('phone-status');
-    const connStatus = document.getElementById('conn-status');
-    const streamBtn = document.getElementById('streamBtn');
-    const switchCamBtn = document.getElementById('switchCamBtn');
-    const signalValue = document.getElementById('signal-value');
 
     const config = {
       iceServers: [
@@ -217,150 +88,6 @@
       ]
     };
 
-    function toggleAuthMode() {
-      isRegisterMode = !isRegisterMode;
-      document.getElementById('auth-title').innerText = isRegisterMode ? 'Create Account' : 'Sign In';
-      document.getElementById('auth-submit-btn').innerText = isRegisterMode ? 'Sign Up' : 'Login';
-      document.getElementById('auth-toggle-btn').innerText = isRegisterMode ? 'Already have an account? Sign In' : 'Need an account? Sign Up';
-      document.getElementById('auth-error').innerText = '';
-    }
-
-    async function handleAuthSubmit() {
-      const u = document.getElementById('auth-user').value.trim();
-      const p = document.getElementById('auth-pass').value.trim();
-      const err = document.getElementById('auth-error');
-
-      if (!u || !p) {
-        err.innerText = 'Enter username and password';
-        return;
-      }
-
-      const endpoint = isRegisterMode ? '/api/register' : '/api/login';
-      try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: u, password: p })
-        });
-        const data = await res.json();
-        if (res.ok) {
-          if (isRegisterMode) {
-            toggleAuthMode();
-            err.style.color = '#22c55e';
-            err.innerText = 'Account registered! Please sign in.';
-          } else {
-            document.getElementById('auth-modal').style.display = 'none';
-            document.getElementById('pair-modal').style.display = 'flex';
-          }
-        } else {
-          err.style.color = '#f87171';
-          err.innerText = data.message || 'Authentication failed';
-        }
-      } catch (e) {
-        err.innerText = 'Unable to reach server';
-      }
-    }
-
-    function openPairModal() {
-      stopViewing();
-      document.getElementById('pair-modal').style.display = 'flex';
-    }
-
-    function pairDevice() {
-      const code = document.getElementById('target-device-id').value.trim().toUpperCase();
-      if (!code) {
-        document.getElementById('pair-error').innerText = 'Please enter a valid Device ID';
-        return;
-      }
-      pairedDeviceId = code;
-      document.getElementById('pair-modal').style.display = 'none';
-      document.getElementById('paired-device-label').innerText = `Paired Device: ${pairedDeviceId}`;
-
-      initSocket();
-    }
-
-    function initSocket() {
-      if (socket) socket.disconnect();
-      socket = io({ transports: ['websocket', 'polling'] });
-
-      socket.on('connect', () => {
-        socket.emit('pair_viewer', { deviceId: pairedDeviceId });
-      });
-
-      socket.on('sender_status', (data) => {
-        if (data.deviceId !== pairedDeviceId) return;
-        isSenderAvailable = data.available;
-        if (data.available) {
-          phoneStatusDot.className = 'status online';
-          connStatus.innerText = isStreaming ? 'Live Streaming Active' : `${pairedDeviceId} Online & Ready`;
-          streamBtn.disabled = false;
-          if (!isStreaming) {
-            streamBtn.innerText = 'Start Remote View';
-            streamBtn.style.background = '#2563eb';
-          }
-          lastPongTime = Date.now();
-        } else {
-          phoneStatusDot.className = 'status';
-          connStatus.innerText = `${pairedDeviceId} Offline`;
-          streamBtn.disabled = true;
-          switchCamBtn.disabled = true;
-          streamBtn.innerText = 'Phone Offline';
-          streamBtn.style.background = '#475569';
-          updateSignalBadge('lost', null);
-          stopViewing();
-        }
-      });
-
-      socket.on('pong_viewer', (sentTimestamp) => {
-        lastPongTime = Date.now();
-        const rtt = Math.max(1, Date.now() - sentTimestamp);
-        
-        if (rtt < 120) {
-          updateSignalBadge('excellent', rtt);
-        } else if (rtt < 280) {
-          updateSignalBadge('good', rtt);
-        } else if (rtt < 550) {
-          updateSignalBadge('medium', rtt);
-        } else {
-          updateSignalBadge('weak', rtt);
-        }
-      });
-
-      socket.on('signal', async (data) => {
-        if (!data) return;
-
-        if (data.type === 'offer') {
-          createPeerConnection();
-          const rawSdp = data.sdp.sdp ? data.sdp.sdp : data.sdp;
-          await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: rawSdp }));
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-          socket.emit('signal', { type: 'answer', sdp: { sdp: answer.sdp, type: answer.type } });
-        } else if (data.type === 'candidate' && data.candidate) {
-          try {
-            if (peerConnection) {
-              await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            }
-          } catch (e) {}
-        }
-      });
-
-      socket.on('telemetry', (data) => {
-        if (!data) return;
-        if (data.gps) {
-          const lat = Number(data.gps.latitude || 0);
-          const lng = Number(data.gps.longitude || 0);
-          document.getElementById('coords').innerText = convertToDMS(lat, lng);
-          if (data.gps.heading !== undefined) {
-            document.getElementById('heading').innerText = `${Number(data.gps.heading).toFixed(1)}°`;
-          }
-        }
-        if (data.orientation) {
-          document.getElementById('accel').innerText = `X: ${data.orientation.pitch.toFixed(1)} | Y: ${data.orientation.roll.toFixed(1)} | Z: ${data.orientation.azimuth.toFixed(1)}`;
-        }
-      });
-    }
-
     function convertToDMS(lat, lng) {
       function toDms(deg, isLat) {
         const absolute = Math.abs(deg);
@@ -368,91 +95,99 @@
         const minutesNotTruncated = (absolute - degrees) * 60;
         const minutes = Math.floor(minutesNotTruncated);
         const seconds = ((minutesNotTruncated - minutes) * 60).toFixed(1);
-        const direction = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+        const direction = isLat
+          ? (deg >= 0 ? 'N' : 'S')
+          : (deg >= 0 ? 'E' : 'W');
         return `${degrees}°${minutes}'${seconds}"${direction}`;
       }
       return `${toDms(lat, true)} ${toDms(lng, false)}`;
     }
 
-    setInterval(() => {
-      if (isSenderAvailable && socket) {
-        const pingTime = Date.now();
-        socket.emit('ping_phone', pingTime);
+    socket.on('connect', () => {
+      document.getElementById('sig-status').innerText = 'Connected';
+      socket.emit('register', 'viewer');
+    });
 
-        if (Date.now() - lastPongTime > 4000) {
-          updateSignalBadge('lost', null);
-        }
-      }
-    }, 1500);
-
-    function updateSignalBadge(quality, ms) {
-      if (quality === 'excellent') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-excellent">Excellent</span>`;
-      } else if (quality === 'good') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-good">Good</span>`;
-      } else if (quality === 'medium') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-medium">Medium</span>`;
-      } else if (quality === 'weak') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-weak">Weak</span>`;
+    socket.on('phone_status', (data) => {
+      const dot = document.getElementById('phone-dot');
+      const txt = document.getElementById('phone-status-text');
+      if (data.online) {
+        dot.className = 'dot online';
+        txt.innerText = 'Phone Online & Ready';
       } else {
-        signalValue.innerHTML = `<span>--</span> <span class="badge badge-lost">Lost Signal</span>`;
-      }
-    }
-
-    function switchCamera() {
-      if (isStreaming && socket) {
-        connStatus.innerText = 'Switching camera...';
-        socket.emit('command', { action: 'switch_camera' });
-      }
-    }
-
-    function toggleStream() {
-      if (!isStreaming) {
-        connStatus.innerText = 'Requesting camera stream from phone...';
-        socket.emit('command', { action: 'start_stream' });
-        streamBtn.innerText = '🛑 Stop Remote View';
-        streamBtn.style.background = '#dc2626';
-        switchCamBtn.disabled = false;
-        isStreaming = true;
-      } else {
+        dot.className = 'dot';
+        txt.innerText = 'Phone Offline';
         stopViewing();
       }
-    }
+    });
 
-    function stopViewing() {
-      if (socket) socket.emit('command', { action: 'stop_stream' });
-      if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
+    socket.on('telemetry', (data) => {
+      if (!data) return;
+      if (data.gps) {
+        const lat = Number(data.gps.latitude || 0);
+        const lng = Number(data.gps.longitude || 0);
+        document.getElementById('gps-coords').innerText = convertToDMS(lat, lng);
+        document.getElementById('gps-acc').innerText = Number(data.gps.accuracy || 0).toFixed(1);
       }
-      remoteVideo.srcObject = null;
-      streamBtn.innerText = 'Start Remote View';
-      streamBtn.style.background = '#2563eb';
-      switchCamBtn.disabled = true;
-      if (isSenderAvailable) {
-        connStatus.innerText = `${pairedDeviceId} Online & Ready`;
+      if (data.orientation) {
+        document.getElementById('ori-x').innerText = Number(data.orientation.pitch || 0).toFixed(1);
+        document.getElementById('ori-y').innerText = Number(data.orientation.roll || 0).toFixed(1);
+        document.getElementById('ori-z').innerText = Number(data.orientation.azimuth || 0).toFixed(1);
       }
-      isStreaming = false;
+    });
 
-      document.getElementById('coords').innerText = '--';
-      document.getElementById('heading').innerText = '--°';
-      document.getElementById('accel').innerText = '--';
-    }
+    socket.on('signal', async (data) => {
+      if (!data) return;
+
+      if (data.type === 'offer') {
+        if (!peerConnection) createPeerConnection();
+        const rawSdp = data.sdp.sdp ? data.sdp.sdp : data.sdp;
+        await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: rawSdp }));
+        
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        
+        socket.emit('signal', {
+          type: 'answer',
+          sdp: { sdp: answer.sdp, type: answer.type }
+        });
+      } else if (data.type === 'candidate' && data.candidate) {
+        try {
+          if (peerConnection) {
+            const cand = data.candidate.candidate ? data.candidate : data.candidate;
+            await peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          }
+        } catch (e) {
+          console.error('ICE Candidate Error:', e);
+        }
+      }
+    });
 
     function createPeerConnection() {
-      if (peerConnection) peerConnection.close();
+      if (peerConnection) {
+        peerConnection.close();
+      }
+
       peerConnection = new RTCPeerConnection(config);
 
       peerConnection.ontrack = (event) => {
+        const video = document.getElementById('remote-video');
         if (event.streams && event.streams[0]) {
-          remoteVideo.srcObject = event.streams[0];
-          remoteVideo.play().catch(() => {});
-          connStatus.innerText = 'Live Streaming Active';
+          video.srcObject = event.streams[0];
         }
+        document.getElementById('rtc-status').innerText = 'Connected';
+        const btn = document.getElementById('btn-toggle');
+        btn.innerText = '🛑 Stop Remote View';
+        btn.className = 'btn-danger';
+        isStreaming = true;
+      };
+
+      peerConnection.onconnectionstatechange = () => {
+        document.getElementById('rtc-status').innerText = peerConnection.connectionState;
       };
 
       peerConnection.onicecandidate = (event) => {
-        if (event.candidate && socket) {
+        if (event.candidate) {
           socket.emit('signal', {
             type: 'candidate',
             candidate: {
@@ -463,6 +198,49 @@
           });
         }
       };
+    }
+
+    function toggleStream() {
+      if (isStreaming) {
+        stopViewing();
+      } else {
+        startViewing();
+      }
+    }
+
+    function startViewing() {
+      createPeerConnection();
+      document.getElementById('btn-toggle').innerText = 'Requesting Stream...';
+      sendCommand('start_stream');
+    }
+
+    function stopViewing() {
+      sendCommand('stop_stream');
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+      const video = document.getElementById('remote-video');
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+      document.getElementById('rtc-status').innerText = 'Idle';
+      const btn = document.getElementById('btn-toggle');
+      btn.innerText = 'Start Remote View';
+      btn.className = '';
+      isStreaming = false;
+
+      // Reset telemetry fields
+      document.getElementById('gps-coords').innerText = '--';
+      document.getElementById('gps-acc').innerText = '-- m';
+      document.getElementById('ori-x').innerText = '--°';
+      document.getElementById('ori-y').innerText = '--°';
+      document.getElementById('ori-z').innerText = '--°';
+    }
+
+    function sendCommand(action) {
+      socket.emit('command', { action });
     }
   </script>
 </body>

@@ -11,15 +11,12 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST']
   },
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000
+  allowEIO3: true
 });
 
 const PORT = process.env.PORT || 3000;
 
-// Track active phone socket IDs
-const activeSenders = new Set();
+let phoneSocketId = null;
 
 app.use(express.static(path.join(__dirname, 'viewer')));
 
@@ -27,62 +24,59 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'viewer', 'index.html'));
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', phoneOnline: activeSenders.size > 0 });
+app.get('/status', (req, res) => {
+  res.json({ phoneOnline: phoneSocketId !== null });
 });
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  console.log('Socket connected:', socket.id);
 
+  // Catch all sender registration formats
   socket.on('register', (role) => {
-    socket.join(role);
-    socket.dataRole = role;
-
     if (role === 'sender' || role === 'phone') {
-      activeSenders.add(socket.id);
-      console.log(`Phone registered [${socket.id}]. Total active phones: ${activeSenders.size}`);
+      phoneSocketId = socket.id;
       io.emit('phone_status', { online: true });
+      console.log('Phone registered via register:', socket.id);
     } else if (role === 'viewer') {
-      // Notify viewer immediately of actual phone status
-      socket.emit('phone_status', { online: activeSenders.size > 0 });
+      socket.emit('phone_status', { online: phoneSocketId !== null });
     }
   });
 
-  // Heartbeat ping from phone
+  socket.on('register_sender', () => {
+    phoneSocketId = socket.id;
+    io.emit('phone_status', { online: true });
+    console.log('Phone registered via register_sender:', socket.id);
+  });
+
   socket.on('heartbeat', () => {
-    if (socket.dataRole === 'sender' || socket.dataRole === 'phone') {
-      if (!activeSenders.has(socket.id)) {
-        activeSenders.add(socket.id);
-        io.emit('phone_status', { online: true });
-      }
-    }
+    phoneSocketId = socket.id;
+    io.emit('phone_status', { online: true });
   });
 
+  // Relay signals
+  socket.on('signal', (data) => socket.broadcast.emit('signal', data));
+  socket.on('offer', (data) => socket.broadcast.emit('signal', { type: 'offer', sdp: data }));
+  socket.on('answer', (data) => socket.broadcast.emit('signal', { type: 'answer', sdp: data }));
+  socket.on('ice-candidate', (data) => socket.broadcast.emit('signal', { type: 'candidate', candidate: data }));
+
+  // Relay telemetry & mark phone active
   socket.on('telemetry', (data) => {
-    if (!activeSenders.has(socket.id)) {
-      activeSenders.add(socket.id);
-      io.emit('phone_status', { online: true });
-    }
+    phoneSocketId = socket.id;
     socket.broadcast.emit('telemetry', data);
   });
 
-  socket.on('signal', (data) => socket.broadcast.emit('signal', data));
+  // Relay commands to sender
   socket.on('command', (data) => socket.broadcast.emit('command', data));
 
-  socket.on('disconnect', (reason) => {
-    console.log(`Client disconnected [${socket.id}], reason: ${reason}`);
-
-    if (activeSenders.has(socket.id)) {
-      activeSenders.delete(socket.id);
-      console.log(`Phone disconnected. Remaining phones: ${activeSenders.size}`);
-      if (activeSenders.size === 0) {
-        io.emit('phone_status', { online: false });
-      }
+  socket.on('disconnect', () => {
+    if (socket.id === phoneSocketId) {
+      phoneSocketId = null;
+      io.emit('phone_status', { online: false });
+      console.log('Phone disconnected');
     }
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Signaling server listening on port ${PORT}`);
 });

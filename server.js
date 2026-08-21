@@ -6,6 +6,9 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'viewer')));
+
 const io = new Server(server, {
   cors: {
     origin: '*',
@@ -16,56 +19,109 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-let lastSenderId = null;
+const users = new Map(); // username -> password
+const activeDevices = new Map(); // deviceId -> socketId
 
-app.use(express.static(path.join(__dirname, 'viewer')));
+// Auth Endpoints
+app.post('/api/register', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'Username and password are required.' });
+  }
+  if (users.has(username)) {
+    return res.status(409).json({ success: false, message: 'Username already exists.' });
+  }
+  users.set(username, password);
+  return res.json({ success: true, message: 'Account created successfully.' });
+});
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!users.has(username) || users.get(username) !== password) {
+    return res.status(401).json({ success: false, message: 'Invalid username or password.' });
+  }
+  return res.json({ success: true, message: 'Logged in successfully.' });
+});
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'viewer', 'index.html'));
 });
 
 io.on('connection', (socket) => {
-  console.log('Socket connected:', socket.id);
+  let boundDeviceId = null;
+  let clientRole = null;
 
-  // If phone registers or sends telemetry
-  socket.on('register', (role) => {
-    if (role === 'sender' || role === 'phone') {
-      lastSenderId = socket.id;
-      io.emit('phone_status', { online: true });
-      console.log('Phone registered:', socket.id);
-    } else if (role === 'viewer') {
-      socket.emit('phone_status', { online: lastSenderId !== null });
+  socket.on('register_sender', ({ deviceId }) => {
+    if (!deviceId) return;
+    boundDeviceId = deviceId.trim().toUpperCase();
+    clientRole = 'sender';
+    
+    socket.join(`room_${boundDeviceId}`);
+    activeDevices.set(boundDeviceId, socket.id);
+    
+    console.log(`📱 Phone registered to room: room_${boundDeviceId}`);
+    io.to(`room_${boundDeviceId}`).emit('sender_status', { available: true, deviceId: boundDeviceId });
+  });
+
+  socket.on('pair_viewer', ({ deviceId }) => {
+    if (!deviceId) return;
+    boundDeviceId = deviceId.trim().toUpperCase();
+    clientRole = 'viewer';
+
+    socket.join(`room_${boundDeviceId}`);
+    const isOnline = activeDevices.has(boundDeviceId);
+    
+    console.log(`💻 Viewer joined room_${boundDeviceId} (Status: ${isOnline ? 'Online' : 'Offline'})`);
+    socket.emit('sender_status', { available: isOnline, deviceId: boundDeviceId });
+  });
+
+  socket.on('heartbeat', ({ deviceId }) => {
+    if (!deviceId) return;
+    const cleanId = deviceId.trim().toUpperCase();
+    activeDevices.set(cleanId, socket.id);
+    io.to(`room_${cleanId}`).emit('sender_status', { available: true, deviceId: cleanId });
+  });
+
+  // Signal & Ping Relays inside room
+  socket.on('ping_phone', (timestamp) => {
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('ping_phone', timestamp);
     }
   });
 
-  socket.on('heartbeat', () => {
-    lastSenderId = socket.id;
-    io.emit('phone_status', { online: true });
-  });
-
-  socket.on('telemetry', (data) => {
-    lastSenderId = socket.id;
-    io.emit('phone_status', { online: true });
-    socket.broadcast.emit('telemetry', data);
+  socket.on('pong_viewer', (timestamp) => {
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('pong_viewer', timestamp);
+    }
   });
 
   socket.on('signal', (data) => {
-    socket.broadcast.emit('signal', data);
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('signal', data);
+    }
+  });
+
+  socket.on('telemetry', (data) => {
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('telemetry', data);
+    }
   });
 
   socket.on('command', (data) => {
-    socket.broadcast.emit('command', data);
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('command', data);
+    }
   });
 
   socket.on('disconnect', () => {
-    if (socket.id === lastSenderId) {
-      lastSenderId = null;
-      io.emit('phone_status', { online: false });
-      console.log('Phone disconnected');
+    if (clientRole === 'sender' && boundDeviceId) {
+      activeDevices.delete(boundDeviceId);
+      io.to(`room_${boundDeviceId}`).emit('sender_status', { available: false, deviceId: boundDeviceId });
+      console.log(`Phone disconnected from room_${boundDeviceId}`);
     }
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Signaling server active on port ${PORT}`);
 });

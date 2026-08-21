@@ -12,20 +12,22 @@
     .status-badge { display: flex; align-items: center; gap: 8px; font-size: 14px; }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
     .dot.online { background: #238636; box-shadow: 0 0 8px #238636; }
-    main { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 16px; flex: 1; min-height: 0; }
+    main { display: grid; grid-template-columns: 1fr 360px; gap: 16px; padding: 16px; flex: 1; min-height: 0; }
     .video-container { background: #000; border-radius: 8px; border: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; position: relative; }
     video { width: 100%; height: 100%; object-fit: contain; background: #000; }
     .controls-overlay { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; background: rgba(22, 27, 34, 0.85); padding: 8px 16px; border-radius: 30px; border: 1px solid #30363d; }
     button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; transition: background 0.2s; }
     button:hover { background: #2ea043; }
+    button.btn-danger { background: #da3633; }
+    button.btn-danger:hover { background: #b62324; }
     button.btn-sec { background: #21262d; border: 1px solid #30363d; }
     button.btn-sec:hover { background: #30363d; }
     .sidebar { background: #161b22; border-radius: 8px; border: 1px solid #30363d; display: flex; flex-direction: column; padding: 16px; gap: 16px; overflow-y: auto; }
     .card { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; }
     .card h3 { font-size: 13px; text-transform: uppercase; color: #8b949e; margin-bottom: 8px; letter-spacing: 0.5px; }
-    .metric-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px solid #21262d; }
+    .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #21262d; gap: 8px; }
     .metric-row:last-child { border-bottom: none; }
-    .val { color: #58a6ff; font-family: monospace; font-weight: 600; }
+    .val { color: #58a6ff; font-family: monospace; font-weight: 600; text-align: right; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -39,9 +41,9 @@
 
   <main>
     <div class="video-container">
-      <video id="remote-video" autoplay playsinline></video>
+      <video id="remote-video" autoplay playsinline muted></video>
       <div class="controls-overlay">
-        <button id="btn-start" onclick="startViewing()">Start Remote View</button>
+        <button id="btn-toggle" onclick="toggleStream()">Start Remote View</button>
         <button class="btn-sec" onclick="sendCommand('switch_camera')">🔄 Switch Camera</button>
       </div>
     </div>
@@ -51,14 +53,18 @@
         <h3>Stream Metrics</h3>
         <div class="metric-row"><span>Signaling:</span><span id="sig-status" class="val">Connecting</span></div>
         <div class="metric-row"><span>WebRTC State:</span><span id="rtc-status" class="val">Idle</span></div>
-        <div class="metric-row"><span>Latency:</span><span id="metric-ping" class="val">-- ms</span></div>
       </div>
 
       <div class="card">
-        <h3>GPS Location</h3>
-        <div class="metric-row"><span>Latitude:</span><span id="gps-lat" class="val">--</span></div>
-        <div class="metric-row"><span>Longitude:</span><span id="gps-lng" class="val">--</span></div>
-        <div class="metric-row"><span>Accuracy:</span><span id="gps-acc" class="val">-- m</span></div>
+        <h3>GPS Coordinates</h3>
+        <div class="metric-row">
+          <span>Position:</span>
+          <span id="gps-coords" class="val">--</span>
+        </div>
+        <div class="metric-row">
+          <span>Accuracy:</span>
+          <span id="gps-acc" class="val">-- m</span>
+        </div>
       </div>
 
       <div class="card">
@@ -73,7 +79,29 @@
   <script>
     const socket = io();
     let peerConnection = null;
-    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    let isStreaming = false;
+
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    };
+
+    function convertToDMS(lat, lng) {
+      function toDms(deg, isLat) {
+        const absolute = Math.abs(deg);
+        const degrees = Math.floor(absolute);
+        const minutesNotTruncated = (absolute - degrees) * 60;
+        const minutes = Math.floor(minutesNotTruncated);
+        const seconds = ((minutesNotTruncated - minutes) * 60).toFixed(1);
+        const direction = isLat
+          ? (deg >= 0 ? 'N' : 'S')
+          : (deg >= 0 ? 'E' : 'W');
+        return `${degrees}°${minutes}'${seconds}"${direction}`;
+      }
+      return `${toDms(lat, true)} ${toDms(lng, false)}`;
+    }
 
     socket.on('connect', () => {
       document.getElementById('sig-status').innerText = 'Connected';
@@ -89,13 +117,16 @@
       } else {
         dot.className = 'dot';
         txt.innerText = 'Phone Offline';
+        stopViewing();
       }
     });
 
     socket.on('telemetry', (data) => {
+      if (!data) return;
       if (data.gps) {
-        document.getElementById('gps-lat').innerText = Number(data.gps.latitude || 0).toFixed(6);
-        document.getElementById('gps-lng').innerText = Number(data.gps.longitude || 0).toFixed(6);
+        const lat = Number(data.gps.latitude || 0);
+        const lng = Number(data.gps.longitude || 0);
+        document.getElementById('gps-coords').innerText = convertToDMS(lat, lng);
         document.getElementById('gps-acc').innerText = Number(data.gps.accuracy || 0).toFixed(1);
       }
       if (data.orientation) {
@@ -106,30 +137,49 @@
     });
 
     socket.on('signal', async (data) => {
-      if (!peerConnection) createPeerConnection();
+      if (!data) return;
 
       if (data.type === 'offer') {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        if (!peerConnection) createPeerConnection();
+        const rawSdp = data.sdp.sdp ? data.sdp.sdp : data.sdp;
+        await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: rawSdp }));
+        
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
-        socket.emit('signal', { type: 'answer', sdp: answer });
+        
+        socket.emit('signal', {
+          type: 'answer',
+          sdp: { sdp: answer.sdp, type: answer.type }
+        });
       } else if (data.type === 'candidate' && data.candidate) {
         try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+          if (peerConnection) {
+            const cand = data.candidate.candidate ? data.candidate : data.candidate;
+            await peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+          }
         } catch (e) {
-          console.error('ICE candidate error', e);
+          console.error('ICE Candidate Error:', e);
         }
       }
     });
 
     function createPeerConnection() {
+      if (peerConnection) {
+        peerConnection.close();
+      }
+
       peerConnection = new RTCPeerConnection(config);
 
       peerConnection.ontrack = (event) => {
         const video = document.getElementById('remote-video');
-        if (video.srcObject !== event.streams[0]) {
+        if (event.streams && event.streams[0]) {
           video.srcObject = event.streams[0];
         }
+        document.getElementById('rtc-status').innerText = 'Connected';
+        const btn = document.getElementById('btn-toggle');
+        btn.innerText = '🛑 Stop Remote View';
+        btn.className = 'btn-danger';
+        isStreaming = true;
       };
 
       peerConnection.onconnectionstatechange = () => {
@@ -138,14 +188,55 @@
 
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          socket.emit('signal', { type: 'candidate', candidate: event.candidate });
+          socket.emit('signal', {
+            type: 'candidate',
+            candidate: {
+              candidate: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex
+            }
+          });
         }
       };
     }
 
+    function toggleStream() {
+      if (isStreaming) {
+        stopViewing();
+      } else {
+        startViewing();
+      }
+    }
+
     function startViewing() {
+      createPeerConnection();
+      document.getElementById('btn-toggle').innerText = 'Requesting Stream...';
       sendCommand('start_stream');
-      document.getElementById('btn-start').innerText = 'Requesting Stream...';
+    }
+
+    function stopViewing() {
+      sendCommand('stop_stream');
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+      const video = document.getElementById('remote-video');
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+      }
+      document.getElementById('rtc-status').innerText = 'Idle';
+      const btn = document.getElementById('btn-toggle');
+      btn.innerText = 'Start Remote View';
+      btn.className = '';
+      isStreaming = false;
+
+      // Reset telemetry fields
+      document.getElementById('gps-coords').innerText = '--';
+      document.getElementById('gps-acc').innerText = '-- m';
+      document.getElementById('ori-x').innerText = '--°';
+      document.getElementById('ori-y').innerText = '--°';
+      document.getElementById('ori-z').innerText = '--°';
     }
 
     function sendCommand(action) {

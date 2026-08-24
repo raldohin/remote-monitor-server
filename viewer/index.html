@@ -419,6 +419,8 @@
 
     function handleSignOut() {
       sessionStorage.removeItem('is_logged_in');
+      // NOTE: We deliberately DO NOT delete 'last_paired_device_id' from localStorage
+      // so it remains saved for your next login!
       location.reload();
     }
 
@@ -431,7 +433,6 @@
         currentDeviceId = savedId;
         deviceIdInput.value = savedId;
         pairedLabel.innerText = `Paired Device: ${savedId}`;
-        pairModal.style.display = 'none'; // Explicitly hide the modal
         registerDeviceWithSocket(savedId);
       } else {
         openPairModal();

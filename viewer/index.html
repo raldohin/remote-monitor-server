@@ -419,8 +419,6 @@
 
     function handleSignOut() {
       sessionStorage.removeItem('is_logged_in');
-      // NOTE: We deliberately DO NOT delete 'last_paired_device_id' from localStorage
-      // so it remains saved for your next login!
       location.reload();
     }
 
@@ -433,6 +431,7 @@
         currentDeviceId = savedId;
         deviceIdInput.value = savedId;
         pairedLabel.innerText = `Paired Device: ${savedId}`;
+        pairModal.style.display = 'none'; // Closes modal if already paired
         registerDeviceWithSocket(savedId);
       } else {
         openPairModal();
@@ -460,9 +459,11 @@
     }
 
     function registerDeviceWithSocket(id) {
+      if (!id) return;
       if (socket.connected) {
         socket.emit('register_viewer', { deviceId: id });
-        console.log('🔄 Registered viewer to Device ID:', id);
+        socket.emit('check_sender', { deviceId: id }); // Actively syncs status
+        console.log('🔄 Registered viewer and verified status for:', id);
       }
     }
 
@@ -470,8 +471,10 @@
     // 3. SOCKET & WEBRTC PIPELINE
     // ==========================================
     socket.on('connect', () => {
-      if (currentDeviceId) {
-        registerDeviceWithSocket(currentDeviceId);
+      const savedId = localStorage.getItem('last_paired_device_id');
+      if (savedId) {
+        currentDeviceId = savedId;
+        registerDeviceWithSocket(savedId);
       }
     });
 
@@ -479,7 +482,7 @@
       isSenderAvailable = data.available;
       if (data.available) {
         phoneStatusDot.className = 'status-dot online';
-        connStatus.innerText = isStreaming ? 'Live Streaming Active' : `${currentDeviceId} Online & Ready`;
+        connStatus.innerText = isStreaming ? 'Live Streaming Active' : `${currentDeviceId || 'Phone'} Online & Ready`;
         streamBtn.disabled = false;
         if (!isStreaming) {
           streamBtn.innerText = 'Start Remote View';

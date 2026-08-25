@@ -165,6 +165,8 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
+      background: #000;
+      cursor: pointer;
     }
 
     .telemetry-card h3 {
@@ -215,7 +217,6 @@
     .badge-weak { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
     .badge-lost { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
 
-    /* ================= MODAL STYLES ================= */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
@@ -404,28 +405,32 @@
     remoteVideo.defaultMuted = true;
     remoteVideo.playsInline = true;
 
+    remoteVideo.addEventListener('click', () => {
+      remoteVideo.muted = true;
+      remoteVideo.play().catch(e => console.log('Click play:', e));
+    });
+
     const config = {
       iceServers: [
+        { urls: 'stun:stun.relay.metered.ca:80' },
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:openrelay.metered.ca:80' },
         {
-          urls: 'turn:openrelay.metered.ca:80',
+          urls: 'turn:raldohin-monitor.metered.live:80',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443',
+          urls: 'turn:raldohin-monitor.metered.live:443',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          urls: 'turn:raldohin-monitor.metered.live:443?transport=tcp',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         },
         {
-          urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+          urls: 'turns:raldohin-monitor.metered.live:443?transport=tcp',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         }
@@ -579,7 +584,6 @@
       if (!isStreaming) {
         connStatus.innerText = 'Requesting camera stream from phone...';
         remoteVideo.muted = true;
-        remoteVideo.play().catch(() => {}); // Pre-warm media playback context on user click
         socket.emit('command', { action: 'start_stream' });
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
@@ -600,24 +604,41 @@
       }
     }
 
+    function safePlayVideo() {
+      remoteVideo.muted = true;
+      if (remoteVideo.paused) {
+        const p = remoteVideo.play();
+        if (p !== undefined) {
+          p.catch(() => {});
+        }
+      }
+    }
+
     function createPeerConnection() {
       if (peerConnection) {
         peerConnection.close();
+        peerConnection = null;
       }
       viewerCandidateQueue.length = 0;
       peerConnection = new RTCPeerConnection(config);
 
       peerConnection.ontrack = (event) => {
-        console.log('🎥 Received remote track:', event.track.kind);
         if (event.track.kind === 'video') {
-          let stream = remoteVideo.srcObject;
-          if (!stream || !(stream instanceof MediaStream)) {
-            stream = new MediaStream();
-            remoteVideo.srcObject = stream;
+          if (event.streams && event.streams[0]) {
+            if (remoteVideo.srcObject !== event.streams[0]) {
+              remoteVideo.srcObject = event.streams[0];
+            }
+          } else {
+            let stream = remoteVideo.srcObject;
+            if (!stream || !(stream instanceof MediaStream)) {
+              stream = new MediaStream();
+              remoteVideo.srcObject = stream;
+            }
+            if (!stream.getTracks().includes(event.track)) {
+              stream.addTrack(event.track);
+            }
           }
-          stream.addTrack(event.track);
-          remoteVideo.muted = true;
-          remoteVideo.play().catch(e => console.log('Playback error:', e));
+          safePlayVideo();
           connStatus.innerText = 'Live Streaming Active';
         }
       };

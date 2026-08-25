@@ -166,7 +166,6 @@
       height: 100%;
       object-fit: contain;
       background: #000;
-      cursor: pointer;
     }
 
     .telemetry-card h3 {
@@ -294,7 +293,6 @@
 </head>
 <body>
 
-  <!-- HEADER -->
   <div class="header-bar">
     <div class="header-titles">
       <div class="header-title-row">
@@ -312,7 +310,6 @@
     </div>
   </div>
 
-  <!-- DASHBOARD BODY -->
   <div class="container">
     <div class="video-card">
       <div class="video-wrapper">
@@ -353,7 +350,6 @@
     </div>
   </div>
 
-  <!-- SIGN IN MODAL -->
   <div id="loginModal" class="modal-overlay">
     <div class="modal-card">
       <h3>Sign In</h3>
@@ -365,7 +361,6 @@
     </div>
   </div>
 
-  <!-- PAIR DEVICE MODAL -->
   <div id="pairModal" class="modal-overlay">
     <div class="modal-card">
       <h3>Pair Remote Device</h3>
@@ -405,32 +400,23 @@
     remoteVideo.defaultMuted = true;
     remoteVideo.playsInline = true;
 
-    remoteVideo.addEventListener('click', () => {
-      remoteVideo.muted = true;
-      remoteVideo.play().catch(e => console.log('Click play:', e));
-    });
-
     const config = {
       iceServers: [
-        { urls: 'stun:stun.relay.metered.ca:80' },
         { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:openrelay.metered.ca:80' },
         {
-          urls: 'turn:raldohin-monitor.metered.live:80',
+          urls: 'turn:openrelay.metered.ca:80',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         },
         {
-          urls: 'turn:raldohin-monitor.metered.live:443',
+          urls: 'turn:openrelay.metered.ca:443',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         },
         {
-          urls: 'turn:raldohin-monitor.metered.live:443?transport=tcp',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        },
-        {
-          urls: 'turns:raldohin-monitor.metered.live:443?transport=tcp',
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
           username: 'openrelayproject',
           credential: 'openrelayproject'
         }
@@ -604,16 +590,6 @@
       }
     }
 
-    function safePlayVideo() {
-      remoteVideo.muted = true;
-      if (remoteVideo.paused) {
-        const p = remoteVideo.play();
-        if (p !== undefined) {
-          p.catch(() => {});
-        }
-      }
-    }
-
     function createPeerConnection() {
       if (peerConnection) {
         peerConnection.close();
@@ -623,22 +599,20 @@
       peerConnection = new RTCPeerConnection(config);
 
       peerConnection.ontrack = (event) => {
+        console.log('🎥 Received remote track:', event.track.kind);
         if (event.track.kind === 'video') {
           if (event.streams && event.streams[0]) {
-            if (remoteVideo.srcObject !== event.streams[0]) {
-              remoteVideo.srcObject = event.streams[0];
-            }
+            remoteVideo.srcObject = event.streams[0];
           } else {
             let stream = remoteVideo.srcObject;
             if (!stream || !(stream instanceof MediaStream)) {
               stream = new MediaStream();
               remoteVideo.srcObject = stream;
             }
-            if (!stream.getTracks().includes(event.track)) {
-              stream.addTrack(event.track);
-            }
+            stream.addTrack(event.track);
           }
-          safePlayVideo();
+          remoteVideo.muted = true;
+          remoteVideo.play().catch(e => console.log('Autoplay play error:', e));
           connStatus.innerText = 'Live Streaming Active';
         }
       };

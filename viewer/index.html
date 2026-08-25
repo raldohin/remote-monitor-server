@@ -340,7 +340,7 @@
     </div>
   </div>
 
-  <!-- ================= SIGN IN MODAL ================= -->
+  <!-- SIGN IN MODAL -->
   <div id="loginModal" class="modal-overlay">
     <div class="modal-card">
       <h3>Sign In</h3>
@@ -352,7 +352,7 @@
     </div>
   </div>
 
-  <!-- ================= PAIR DEVICE MODAL ================= -->
+  <!-- PAIR DEVICE MODAL -->
   <div id="pairModal" class="modal-overlay">
     <div class="modal-card">
       <h3>Pair Remote Device</h3>
@@ -431,7 +431,7 @@
         currentDeviceId = savedId;
         deviceIdInput.value = savedId;
         pairedLabel.innerText = `Paired Device: ${savedId}`;
-        pairModal.style.display = 'none'; // Closes modal if already paired
+        pairModal.style.display = 'none';
         registerDeviceWithSocket(savedId);
       } else {
         openPairModal();
@@ -461,9 +461,8 @@
     function registerDeviceWithSocket(id) {
       if (!id) return;
       if (socket.connected) {
-        socket.emit('register_viewer', { deviceId: id });
-        socket.emit('check_sender', { deviceId: id }); // Actively syncs status
-        console.log('🔄 Registered viewer and verified status for:', id);
+        socket.emit('pair_viewer', { deviceId: id });
+        console.log('🔄 Sent pair_viewer for:', id);
       }
     }
 
@@ -471,6 +470,7 @@
     // 3. SOCKET & WEBRTC PIPELINE
     // ==========================================
     socket.on('connect', () => {
+      console.log('✅ Connected to signaling server');
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
         currentDeviceId = savedId;
@@ -482,7 +482,7 @@
       isSenderAvailable = data.available;
       if (data.available) {
         phoneStatusDot.className = 'status-dot online';
-        connStatus.innerText = isStreaming ? 'Live Streaming Active' : `${currentDeviceId || 'Phone'} Online & Ready`;
+        connStatus.innerText = isStreaming ? 'Live Streaming Active' : `${currentDeviceId || data.deviceId} Online & Ready`;
         streamBtn.disabled = false;
         if (!isStreaming) {
           streamBtn.innerText = 'Start Remote View';
@@ -537,22 +537,22 @@
     }
 
     function switchCamera() {
-      if (isStreaming && currentDeviceId) {
+      if (isStreaming) {
         connStatus.innerText = 'Switching camera...';
-        socket.emit('command', { action: 'switch_camera', deviceId: currentDeviceId });
+        socket.emit('command', { action: 'switch_camera' });
       }
     }
 
     function toggleStream() {
       if (!isStreaming) {
         connStatus.innerText = 'Requesting camera stream from phone...';
-        socket.emit('command', { action: 'start_stream', deviceId: currentDeviceId });
+        socket.emit('command', { action: 'start_stream' });
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
         switchCamBtn.disabled = false;
         isStreaming = true;
       } else {
-        socket.emit('command', { action: 'stop_stream', deviceId: currentDeviceId });
+        socket.emit('command', { action: 'stop_stream' });
         if (peerConnection) peerConnection.close();
         remoteVideo.srcObject = null;
         streamBtn.innerText = 'Start Remote View';
@@ -583,8 +583,7 @@
               candidate: event.candidate.candidate,
               sdpMid: event.candidate.sdpMid,
               sdpMLineIndex: event.candidate.sdpMLineIndex
-            },
-            deviceId: currentDeviceId
+            }
           });
         }
       };
@@ -598,8 +597,7 @@
         await peerConnection.setLocalDescription(answer);
         socket.emit('signal', {
           type: 'answer',
-          sdp: { sdp: answer.sdp, type: answer.type },
-          deviceId: currentDeviceId
+          sdp: { sdp: answer.sdp, type: answer.type }
         });
       } else if (data.type === 'candidate' && peerConnection) {
         try {

@@ -167,28 +167,6 @@
       object-fit: contain;
     }
 
-    .play-overlay {
-      position: absolute;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.6);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      z-index: 10;
-    }
-
-    .play-overlay span {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #fff;
-      background: var(--accent-blue);
-      padding: 12px 24px;
-      border-radius: 8px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-    }
-
     .telemetry-card h3 {
       margin: 0 0 16px 0;
       font-size: 1.1rem;
@@ -338,9 +316,6 @@
     <div class="video-card">
       <div class="video-wrapper">
         <video id="remoteVideo" autoplay playsinline muted></video>
-        <div id="playOverlay" class="play-overlay" onclick="handleManualPlay()">
-          <span>▶ Click to Resume Video</span>
-        </div>
       </div>
     </div>
 
@@ -401,9 +376,12 @@
   </div>
 
   <script>
-    const socket = io();
+    const socket = io({
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 99,
+      timeout: 10000
+    });
     const remoteVideo = document.getElementById('remoteVideo');
-    const playOverlay = document.getElementById('playOverlay');
     const phoneStatusDot = document.getElementById('phone-status');
     const connStatus = document.getElementById('conn-status');
     const pairedLabel = document.getElementById('paired-label');
@@ -416,7 +394,7 @@
     const deviceIdInput = document.getElementById('deviceIdInput');
 
     let currentDeviceId = '';
-    let peerConnection;
+    let peerConnection = null;
     let isStreaming = false;
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
@@ -425,13 +403,6 @@
     remoteVideo.muted = true;
     remoteVideo.defaultMuted = true;
     remoteVideo.playsInline = true;
-
-    function handleManualPlay() {
-      remoteVideo.muted = true;
-      remoteVideo.play().then(() => {
-        playOverlay.style.display = 'none';
-      }).catch(err => console.error('Manual playback error:', err));
-    }
 
     const config = {
       iceServers: [
@@ -608,6 +579,7 @@
       if (!isStreaming) {
         connStatus.innerText = 'Requesting camera stream from phone...';
         remoteVideo.muted = true;
+        remoteVideo.play().catch(() => {}); // Pre-warm media playback context on user click
         socket.emit('command', { action: 'start_stream' });
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
@@ -615,9 +587,11 @@
         isStreaming = true;
       } else {
         socket.emit('command', { action: 'stop_stream' });
-        if (peerConnection) peerConnection.close();
+        if (peerConnection) {
+          peerConnection.close();
+          peerConnection = null;
+        }
         remoteVideo.srcObject = null;
-        playOverlay.style.display = 'none';
         streamBtn.innerText = 'Start Remote View';
         streamBtn.style.background = '#2563eb';
         switchCamBtn.disabled = true;
@@ -634,21 +608,16 @@
       peerConnection = new RTCPeerConnection(config);
 
       peerConnection.ontrack = (event) => {
-        if (event.streams && event.streams[0]) {
-          const incomingStream = event.streams[0];
-          if (remoteVideo.srcObject !== incomingStream) {
-            remoteVideo.srcObject = incomingStream;
-            remoteVideo.muted = true;
-
-            remoteVideo.onloadedmetadata = () => {
-              remoteVideo.play().then(() => {
-                playOverlay.style.display = 'none';
-              }).catch((err) => {
-                console.warn('Autoplay prevented. Showing resume overlay:', err);
-                playOverlay.style.display = 'flex';
-              });
-            };
+        console.log('🎥 Received remote track:', event.track.kind);
+        if (event.track.kind === 'video') {
+          let stream = remoteVideo.srcObject;
+          if (!stream || !(stream instanceof MediaStream)) {
+            stream = new MediaStream();
+            remoteVideo.srcObject = stream;
           }
+          stream.addTrack(event.track);
+          remoteVideo.muted = true;
+          remoteVideo.play().catch(e => console.log('Playback error:', e));
           connStatus.innerText = 'Live Streaming Active';
         }
       };

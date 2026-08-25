@@ -15,15 +15,14 @@ const io = new Server(server, {
     methods: ['GET', 'POST']
   },
   transports: ['websocket', 'polling'],
-  maxHttpBufferSize: 1e7 // 10MB buffer to handle high-speed frame streaming
+  maxHttpBufferSize: 1e7
 });
 
 const PORT = process.env.PORT || 3000;
 
-const users = new Map(); // username -> password
-const activeDevices = new Map(); // deviceId -> socketId
+const users = new Map();
+const activeDevices = new Map();
 
-// Auth Endpoints
 app.post('/api/register', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -83,14 +82,12 @@ io.on('connection', (socket) => {
     io.to(`room_${cleanId}`).emit('sender_status', { available: true, deviceId: cleanId });
   });
 
-  // Direct WebSocket Video Frame Relay (Guaranteed Mobile Data Delivery)
   socket.on('video_frame', (frameData) => {
     if (boundDeviceId) {
       socket.to(`room_${boundDeviceId}`).emit('video_frame', frameData);
     }
   });
 
-  // Signal & Ping Relays inside room
   socket.on('ping_phone', (timestamp) => {
     if (boundDeviceId) {
       socket.to(`room_${boundDeviceId}`).emit('ping_phone', timestamp);

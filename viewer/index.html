@@ -383,10 +383,27 @@
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
 
+    // OpenRelay STUN & TURN Servers (Bypasses Cellular CGNAT / Firewalls)
     const config = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:openrelay.metered.ca:80' },
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        }
       ]
     };
 
@@ -570,7 +587,9 @@
       peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
           remoteVideo.srcObject = event.streams[0];
-          remoteVideo.play().catch(() => {});
+          remoteVideo.play().catch((err) => {
+            console.log('Autoplay deferred, waiting for interaction:', err);
+          });
           connStatus.innerText = 'Live Streaming Active';
         }
       };
@@ -602,7 +621,9 @@
       } else if (data.type === 'candidate' && peerConnection) {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {}
+        } catch (e) {
+          console.error('ICE candidate error:', e);
+        }
       }
     });
 

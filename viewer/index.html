@@ -161,11 +161,12 @@
       justify-content: center;
     }
 
-    video {
+    #streamCanvas {
       width: 100%;
       height: 100%;
       object-fit: contain;
       background: #000;
+      display: block;
     }
 
     .telemetry-card h3 {
@@ -313,7 +314,7 @@
   <div class="container">
     <div class="video-card">
       <div class="video-wrapper">
-        <video id="remoteVideo" autoplay playsinline muted></video>
+        <img id="streamCanvas" alt="Live Feed" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' fill='%23000'></svg>" />
       </div>
     </div>
 
@@ -374,10 +375,9 @@
   <script>
     const socket = io({
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 99,
-      timeout: 10000
+      reconnectionAttempts: 99
     });
-    const remoteVideo = document.getElementById('remoteVideo');
+    const streamCanvas = document.getElementById('streamCanvas');
     const phoneStatusDot = document.getElementById('phone-status');
     const connStatus = document.getElementById('conn-status');
     const pairedLabel = document.getElementById('paired-label');
@@ -390,38 +390,9 @@
     const deviceIdInput = document.getElementById('deviceIdInput');
 
     let currentDeviceId = '';
-    let peerConnection = null;
     let isStreaming = false;
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
-    const viewerCandidateQueue = [];
-
-    remoteVideo.muted = true;
-    remoteVideo.defaultMuted = true;
-    remoteVideo.playsInline = true;
-
-    const config = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:openrelay.metered.ca:80' },
-        {
-          urls: 'turn:openrelay.metered.ca:80',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        },
-        {
-          urls: 'turn:openrelay.metered.ca:443',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        },
-        {
-          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        }
-      ]
-    };
 
     function checkAuth() {
       const isAuthenticated = sessionStorage.getItem('is_logged_in');
@@ -435,8 +406,6 @@
 
     function handleLogin() {
       const user = document.getElementById('usernameInput').value.trim();
-      const pass = document.getElementById('passwordInput').value.trim();
-
       if (user.length > 0) {
         sessionStorage.setItem('is_logged_in', 'true');
         sessionStorage.setItem('user_name', user);
@@ -477,7 +446,6 @@
     function handleConnectDevice() {
       const id = deviceIdInput.value.trim().toUpperCase();
       if (!id) return;
-
       currentDeviceId = id;
       localStorage.setItem('last_paired_device_id', id);
       pairedLabel.innerText = `Paired Device: ${id}`;
@@ -489,12 +457,10 @@
       if (!id) return;
       if (socket.connected) {
         socket.emit('pair_viewer', { deviceId: id });
-        console.log('🔄 Sent pair_viewer for:', id);
       }
     }
 
     socket.on('connect', () => {
-      console.log('✅ Connected to signaling server');
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
         currentDeviceId = savedId;
@@ -524,11 +490,20 @@
       }
     });
 
+    // Render incoming video frames
+    socket.on('video_frame', (base64Frame) => {
+      if (base64Frame) {
+        streamCanvas.src = 'data:image/jpeg;base64,' + base64Frame;
+        if (isStreaming) {
+          connStatus.innerText = 'Live Streaming Active';
+        }
+      }
+    });
+
     setInterval(() => {
       if (isSenderAvailable && currentDeviceId) {
         const pingTime = Date.now();
         socket.emit('ping_phone', pingTime);
-
         if (Date.now() - lastPongTime > 4000) {
           updateSignalBadge('lost', null);
         }
@@ -538,7 +513,6 @@
     socket.on('pong_viewer', (sentTimestamp) => {
       lastPongTime = Date.now();
       const rtt = Math.max(1, Date.now() - sentTimestamp);
-
       if (rtt < 120) updateSignalBadge('excellent', rtt);
       else if (rtt < 280) updateSignalBadge('good', rtt);
       else if (rtt < 550) updateSignalBadge('medium', rtt);
@@ -546,17 +520,11 @@
     });
 
     function updateSignalBadge(quality, ms) {
-      if (quality === 'excellent') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-excellent">Excellent</span>`;
-      } else if (quality === 'good') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-good">Good</span>`;
-      } else if (quality === 'medium') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-medium">Medium</span>`;
-      } else if (quality === 'weak') {
-        signalValue.innerHTML = `${ms} ms <span class="badge badge-weak">Weak</span>`;
-      } else {
-        signalValue.innerHTML = `<span>--</span> <span class="badge badge-lost">Offline</span>`;
-      }
+      if (quality === 'excellent') signalValue.innerHTML = `${ms} ms <span class="badge badge-excellent">Excellent</span>`;
+      else if (quality === 'good') signalValue.innerHTML = `${ms} ms <span class="badge badge-good">Good</span>`;
+      else if (quality === 'medium') signalValue.innerHTML = `${ms} ms <span class="badge badge-medium">Medium</span>`;
+      else if (quality === 'weak') signalValue.innerHTML = `${ms} ms <span class="badge badge-weak">Weak</span>`;
+      else signalValue.innerHTML = `<span>--</span> <span class="badge badge-lost">Offline</span>`;
     }
 
     function switchCamera() {
@@ -569,7 +537,6 @@
     function toggleStream() {
       if (!isStreaming) {
         connStatus.innerText = 'Requesting camera stream from phone...';
-        remoteVideo.muted = true;
         socket.emit('command', { action: 'start_stream' });
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
@@ -577,11 +544,7 @@
         isStreaming = true;
       } else {
         socket.emit('command', { action: 'stop_stream' });
-        if (peerConnection) {
-          peerConnection.close();
-          peerConnection = null;
-        }
-        remoteVideo.srcObject = null;
+        streamCanvas.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' fill='%23000'></svg>";
         streamBtn.innerText = 'Start Remote View';
         streamBtn.style.background = '#2563eb';
         switchCamBtn.disabled = true;
@@ -589,77 +552,6 @@
         isStreaming = false;
       }
     }
-
-    function createPeerConnection() {
-      if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-      }
-      viewerCandidateQueue.length = 0;
-      peerConnection = new RTCPeerConnection(config);
-
-      peerConnection.ontrack = (event) => {
-        console.log('🎥 Received remote track:', event.track.kind);
-        if (event.track.kind === 'video') {
-          if (event.streams && event.streams[0]) {
-            remoteVideo.srcObject = event.streams[0];
-          } else {
-            let stream = remoteVideo.srcObject;
-            if (!stream || !(stream instanceof MediaStream)) {
-              stream = new MediaStream();
-              remoteVideo.srcObject = stream;
-            }
-            stream.addTrack(event.track);
-          }
-          remoteVideo.muted = true;
-          remoteVideo.play().catch(e => console.log('Autoplay play error:', e));
-          connStatus.innerText = 'Live Streaming Active';
-        }
-      };
-
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('signal', {
-            type: 'candidate',
-            candidate: {
-              candidate: event.candidate.candidate,
-              sdpMid: event.candidate.sdpMid,
-              sdpMLineIndex: event.candidate.sdpMLineIndex
-            }
-          });
-        }
-      };
-    }
-
-    socket.on('signal', async (data) => {
-      if (data.type === 'offer') {
-        createPeerConnection();
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        
-        for (const c of viewerCandidateQueue) {
-          await peerConnection.addIceCandidate(c);
-        }
-        viewerCandidateQueue.length = 0;
-
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit('signal', {
-          type: 'answer',
-          sdp: { sdp: answer.sdp, type: answer.type }
-        });
-      } else if (data.type === 'candidate') {
-        const candidate = new RTCIceCandidate(data.candidate);
-        if (peerConnection && peerConnection.remoteDescription) {
-          try {
-            await peerConnection.addIceCandidate(candidate);
-          } catch (e) {
-            console.error('ICE candidate error:', e);
-          }
-        } else {
-          viewerCandidateQueue.push(candidate);
-        }
-      }
-    });
 
     socket.on('telemetry', (data) => {
       if (data.gps) {

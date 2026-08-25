@@ -14,7 +14,8 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST']
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 1e7 // 10MB buffer to handle high-speed frame streaming
 });
 
 const PORT = process.env.PORT || 3000;
@@ -80,6 +81,13 @@ io.on('connection', (socket) => {
     const cleanId = deviceId.trim().toUpperCase();
     activeDevices.set(cleanId, socket.id);
     io.to(`room_${cleanId}`).emit('sender_status', { available: true, deviceId: cleanId });
+  });
+
+  // Direct WebSocket Video Frame Relay (Guaranteed Mobile Data Delivery)
+  socket.on('video_frame', (frameData) => {
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('video_frame', frameData);
+    }
   });
 
   // Signal & Ping Relays inside room

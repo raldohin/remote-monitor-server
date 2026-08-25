@@ -382,8 +382,8 @@
     let isStreaming = false;
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
+    const viewerCandidateQueue = [];
 
-    // OpenRelay STUN & TURN Servers (Bypasses Cellular CGNAT / Firewalls)
     const config = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -403,13 +403,15 @@
           urls: 'turn:openrelay.metered.ca:443?transport=tcp',
           username: 'openrelayproject',
           credential: 'openrelayproject'
+        },
+        {
+          urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
         }
       ]
     };
 
-    // ==========================================
-    // 1. AUTHENTICATION & SESSION HANDLING
-    // ==========================================
     function checkAuth() {
       const isAuthenticated = sessionStorage.getItem('is_logged_in');
       if (!isAuthenticated) {
@@ -439,9 +441,6 @@
       location.reload();
     }
 
-    // ==========================================
-    // 2. PAIRING & PERSISTENCE
-    // ==========================================
     function initSavedDevice() {
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
@@ -483,9 +482,6 @@
       }
     }
 
-    // ==========================================
-    // 3. SOCKET & WEBRTC PIPELINE
-    // ==========================================
     socket.on('connect', () => {
       console.log('✅ Connected to signaling server');
       const savedId = localStorage.getItem('last_paired_device_id');
@@ -517,7 +513,6 @@
       }
     });
 
-    // Latency Ping Interval
     setInterval(() => {
       if (isSenderAvailable && currentDeviceId) {
         const pingTime = Date.now();
@@ -582,13 +577,14 @@
 
     function createPeerConnection() {
       if (peerConnection) peerConnection.close();
+      viewerCandidateQueue.length = 0;
       peerConnection = new RTCPeerConnection(config);
 
       peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
           remoteVideo.srcObject = event.streams[0];
           remoteVideo.play().catch((err) => {
-            console.log('Autoplay deferred, waiting for interaction:', err);
+            console.log('Autoplay play error:', err);
           });
           connStatus.innerText = 'Live Streaming Active';
         }
@@ -612,17 +608,28 @@
       if (data.type === 'offer') {
         createPeerConnection();
         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        
+        for (const c of viewerCandidateQueue) {
+          await peerConnection.addIceCandidate(c);
+        }
+        viewerCandidateQueue.length = 0;
+
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         socket.emit('signal', {
           type: 'answer',
           sdp: { sdp: answer.sdp, type: answer.type }
         });
-      } else if (data.type === 'candidate' && peerConnection) {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          console.error('ICE candidate error:', e);
+      } else if (data.type === 'candidate') {
+        const candidate = new RTCIceCandidate(data.candidate);
+        if (peerConnection && peerConnection.remoteDescription) {
+          try {
+            await peerConnection.addIceCandidate(candidate);
+          } catch (e) {
+            console.error('ICE candidate error:', e);
+          }
+        } else {
+          viewerCandidateQueue.push(candidate);
         }
       }
     });
@@ -640,7 +647,6 @@
       }
     });
 
-    // Run on startup
     document.addEventListener('DOMContentLoaded', checkAuth);
   </script>
 </body>

@@ -22,7 +22,7 @@ const io = new Server(server, {
 });
 
 // ==========================================
-// 1. BUILT-IN SQLITE INITIALIZATION
+// 1. BUILT-IN SQLITE & PERSISTENT DEFAULT USER
 // ==========================================
 const db = new DatabaseSync(path.join(__dirname, 'users.db'));
 db.exec(`
@@ -34,6 +34,24 @@ db.exec(`
   )
 `);
 console.log('Connected to Native SQLite Database.');
+
+// Auto-seed admin user so restarts on Render don't lock you out
+const initDefaultUser = async () => {
+  try {
+    const check = db.prepare(`SELECT * FROM users WHERE username = ?`);
+    const exists = check.get('admin');
+    if (!exists) {
+      const salt = await bcrypt.genSalt(10);
+      const hash = await bcrypt.hash('admin12345', salt);
+      const insert = db.prepare(`INSERT INTO users (username, password_hash) VALUES (?, ?)`);
+      insert.run('admin', hash);
+      console.log('Default user (admin / admin12345) ready.');
+    }
+  } catch (err) {
+    console.error('Error seeding default user:', err);
+  }
+};
+initDefaultUser();
 
 // ==========================================
 // 2. AUTHENTICATION ENDPOINTS
@@ -144,6 +162,14 @@ io.on('connection', (socket) => {
     io.to(`room_${boundDeviceId}`).emit('sender_status', { available: true, deviceId: boundDeviceId });
   });
 
+  socket.on('unregister_sender', ({ deviceId }) => {
+    if (!deviceId) return;
+    const cleanId = deviceId.trim().toUpperCase();
+    activeDevices.delete(cleanId);
+    io.to(`room_${cleanId}`).emit('sender_status', { available: false, deviceId: cleanId });
+    console.log(`📱 Phone explicitly unregistered: room_${cleanId}`);
+  });
+
   socket.on('pair_viewer', ({ deviceId }) => {
     if (!deviceId) return;
     boundDeviceId = deviceId.trim().toUpperCase();
@@ -201,9 +227,11 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (clientRole === 'sender' && boundDeviceId) {
-      activeDevices.delete(boundDeviceId);
-      io.to(`room_${boundDeviceId}`).emit('sender_status', { available: false, deviceId: boundDeviceId });
-      console.log(`Phone disconnected from room_${boundDeviceId}`);
+      if (activeDevices.get(boundDeviceId) === socket.id) {
+        activeDevices.delete(boundDeviceId);
+        io.to(`room_${boundDeviceId}`).emit('sender_status', { available: false, deviceId: boundDeviceId });
+        console.log(`Phone disconnected from room_${boundDeviceId}`);
+      }
     }
   });
 });

@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const sqlite3 = require('sqlite3').verbose();
+const { DatabaseSync } = require('node:sqlite');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -16,85 +16,68 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'viewer')));
 
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  },
+  cors: { origin: '*', methods: ['GET', 'POST'] },
   transports: ['websocket', 'polling'],
   maxHttpBufferSize: 1e7
 });
 
 // ==========================================
-// 1. SQLITE DATABASE INITIALIZATION
+// 1. BUILT-IN SQLITE INITIALIZATION
 // ==========================================
-const db = new sqlite3.Database(path.join(__dirname, 'users.db'), (err) => {
-  if (err) {
-    console.error('Error opening SQLite database:', err.message);
-  } else {
-    console.log('Connected to SQLite database.');
-    db.run(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  }
-});
+const db = new DatabaseSync(path.join(__dirname, 'users.db'));
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+console.log('Connected to Native SQLite Database.');
 
 // ==========================================
-// 2. AUTHENTICATION REST APIS
+// 2. AUTHENTICATION ENDPOINTS
 // ==========================================
-
-// Register Account
 app.post('/api/register', async (req, res) => {
   const { username, password, confirmPassword } = req.body;
 
   if (!username || !password || !confirmPassword) {
     return res.status(400).json({ success: false, message: 'All fields are required.' });
   }
-
   if (password !== confirmPassword) {
     return res.status(400).json({ success: false, message: 'Password does not match.' });
   }
-
   if (password.length < 6) {
-    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
   }
 
   try {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const query = `INSERT INTO users (username, password_hash) VALUES (?, ?)`;
-    db.run(query, [username.trim().toLowerCase(), passwordHash], function (err) {
-      if (err) {
-        if (err.message.includes('UNIQUE constraint failed')) {
-          return res.status(409).json({ success: false, message: 'Username is already taken.' });
-        }
-        return res.status(500).json({ success: false, message: 'Database error during registration.' });
-      }
-      return res.status(201).json({ success: true, message: 'Account created successfully! Please log in.' });
-    });
+    const insert = db.prepare(`INSERT INTO users (username, password_hash) VALUES (?, ?)`);
+    insert.run(username.trim().toLowerCase(), passwordHash);
+
+    return res.status(201).json({ success: true, message: 'Account created successfully! Please log in.' });
   } catch (err) {
-    return res.status(500).json({ success: false, message: 'Server error hashing password.' });
+    if (err.message && err.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ success: false, message: 'Username is already taken.' });
+    }
+    return res.status(500).json({ success: false, message: 'Registration failed.' });
   }
 });
 
-// Login
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
     return res.status(400).json({ success: false, message: 'Username and password are required.' });
   }
 
-  const query = `SELECT * FROM users WHERE username = ?`;
-  db.get(query, [username.trim().toLowerCase()], async (err, user) => {
-    if (err) {
-      return res.status(500).json({ success: false, message: 'Database error during authentication.' });
-    }
+  try {
+    const query = db.prepare(`SELECT * FROM users WHERE username = ?`);
+    const user = query.get(username.trim().toLowerCase());
+
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid username or password.' });
     }
@@ -116,10 +99,11 @@ app.post('/api/login', (req, res) => {
       token,
       username: user.username
     });
-  });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Server error during login.' });
+  }
 });
 
-// Verify Token
 app.get('/api/verify', (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {

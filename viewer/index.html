@@ -106,9 +106,7 @@
       border: 1px solid #334155;
     }
 
-    .btn-secondary:hover:not(:disabled) {
-      background: #334155;
-    }
+    .btn-secondary:hover:not(:disabled) { background: #334155; }
 
     .btn-danger-outline {
       background: transparent;
@@ -146,27 +144,23 @@
       border-radius: 14px;
       padding: 20px;
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
-      position: relative;
     }
 
-    .video-wrapper {
-      position: relative;
-      width: 100%;
-      height: 480px;
-      background: #000;
-      border-radius: 10px;
-      overflow: hidden;
+    .video-card {
       display: flex;
       align-items: center;
       justify-content: center;
+      background: #000;
+      min-height: 480px;
     }
 
     #streamCanvas {
       width: 100%;
-      height: 100%;
-      object-fit: contain;
+      height: 480px;
+      border-radius: 10px;
       background: #000;
-      display: block;
+      object-fit: contain;
+      border: 1px solid #1e293b;
     }
 
     .telemetry-card h3 {
@@ -217,12 +211,13 @@
     .badge-weak { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
     .badge-lost { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
 
+    /* ================= AUTH MODAL ================= */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(8, 12, 22, 0.85);
-      backdrop-filter: blur(8px);
-      display: none;
+      background: rgba(8, 12, 22, 0.92);
+      backdrop-filter: blur(10px);
+      display: flex;
       align-items: center;
       justify-content: center;
       z-index: 1000;
@@ -231,7 +226,7 @@
     .modal-card {
       background: #1b263b;
       border: 1px solid #334155;
-      padding: 32px;
+      padding: 28px;
       border-radius: 16px;
       width: 100%;
       max-width: 380px;
@@ -239,16 +234,33 @@
       text-align: center;
     }
 
-    .modal-card h3 {
-      margin: 0 0 8px 0;
-      font-size: 1.3rem;
-      font-weight: 700;
+    .auth-tabs {
+      display: flex;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .auth-tab {
+      flex: 1;
+      background: none;
+      border: none;
+      padding: 10px;
+      color: var(--text-muted);
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s ease;
+    }
+
+    .auth-tab.active {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
     }
 
     .modal-card p {
       font-size: 0.85rem;
       color: var(--text-muted);
-      margin: 0 0 20px 0;
+      margin: 0 0 16px 0;
     }
 
     .form-input {
@@ -259,7 +271,7 @@
       border-radius: 8px;
       color: #fff;
       font-size: 0.95rem;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       outline: none;
       font-family: inherit;
     }
@@ -284,11 +296,24 @@
       margin-top: 6px;
     }
 
-    .error-msg {
-      color: #f87171;
-      font-size: 0.8rem;
-      margin-top: 10px;
+    .alert-msg {
+      font-size: 0.85rem;
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
       display: none;
+    }
+
+    .alert-error {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .alert-success {
+      color: #4ade80;
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.4);
     }
   </style>
 </head>
@@ -313,9 +338,7 @@
 
   <div class="container">
     <div class="video-card">
-      <div class="video-wrapper">
-        <img id="streamCanvas" alt="Live Feed" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' fill='%23000'></svg>" />
-      </div>
+      <img id="streamCanvas" alt="Live Feed" />
     </div>
 
     <div class="telemetry-card">
@@ -351,18 +374,37 @@
     </div>
   </div>
 
+  <!-- AUTHENTICATION MODAL (LOGIN & REGISTER) -->
   <div id="loginModal" class="modal-overlay">
     <div class="modal-card">
-      <h3>Sign In</h3>
-      <p>Enter your credentials to access the remote dashboard</p>
-      <input type="text" id="usernameInput" class="form-input" placeholder="Username" value="Raldohin" />
-      <input type="password" id="passwordInput" class="form-input" placeholder="Password" />
-      <button class="btn modal-btn" onclick="handleLogin()">Login</button>
-      <div id="loginError" class="error-msg">Invalid username or password.</div>
+      <div class="auth-tabs">
+        <button id="tabLogin" class="auth-tab active" type="button" onclick="switchAuthTab('login')">Sign In</button>
+        <button id="tabRegister" class="auth-tab" type="button" onclick="switchAuthTab('register')">Create Account</button>
+      </div>
+
+      <!-- Sign In Form -->
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <p>Enter your credentials to access the remote dashboard</p>
+        <input type="text" id="usernameInput" class="form-input" placeholder="Username" required autocomplete="username" />
+        <input type="password" id="passwordInput" class="form-input" placeholder="Password" required autocomplete="current-password" />
+        <button type="submit" class="btn modal-btn">Login</button>
+      </form>
+
+      <!-- Create Account Form -->
+      <form id="registerForm" style="display: none;" onsubmit="handleRegister(event)">
+        <p>Create a new account for remote monitoring access</p>
+        <input type="text" id="regUsernameInput" class="form-input" placeholder="Choose Username" required autocomplete="username" />
+        <input type="password" id="regPasswordInput" class="form-input" placeholder="Password (min. 6 characters)" required autocomplete="new-password" />
+        <input type="password" id="regConfirmPasswordInput" class="form-input" placeholder="Confirm Password" required autocomplete="new-password" />
+        <button type="submit" class="btn modal-btn">Create Account</button>
+      </form>
+
+      <div id="authAlert" class="alert-msg"></div>
     </div>
   </div>
 
-  <div id="pairModal" class="modal-overlay">
+  <!-- PAIR DEVICE MODAL -->
+  <div id="pairModal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
       <h3>Pair Remote Device</h3>
       <p>Enter the Device ID from your phone.</p>
@@ -373,10 +415,7 @@
   </div>
 
   <script>
-    const socket = io({
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 99
-    });
+    const socket = io();
     const streamCanvas = document.getElementById('streamCanvas');
     const phoneStatusDot = document.getElementById('phone-status');
     const connStatus = document.getElementById('conn-status');
@@ -388,39 +427,152 @@
     const loginModal = document.getElementById('loginModal');
     const pairModal = document.getElementById('pairModal');
     const deviceIdInput = document.getElementById('deviceIdInput');
+    const authAlert = document.getElementById('authAlert');
 
     let currentDeviceId = '';
     let isStreaming = false;
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
 
-    function checkAuth() {
-      const isAuthenticated = sessionStorage.getItem('is_logged_in');
-      if (!isAuthenticated) {
+    // ==========================================
+    // 1. AUTHENTICATION (JWT + BCRYPT)
+    // ==========================================
+    function switchAuthTab(tab) {
+      clearAuthAlert();
+      const isLogin = tab === 'login';
+      document.getElementById('tabLogin').classList.toggle('active', isLogin);
+      document.getElementById('tabRegister').classList.toggle('active', !isLogin);
+      document.getElementById('loginForm').style.display = isLogin ? 'block' : 'none';
+      document.getElementById('registerForm').style.display = isLogin ? 'none' : 'block';
+    }
+
+    function showAuthAlert(message, isSuccess = false) {
+      authAlert.textContent = message;
+      authAlert.className = `alert-msg ${isSuccess ? 'alert-success' : 'alert-error'}`;
+      authAlert.style.display = 'block';
+    }
+
+    function clearAuthAlert() {
+      authAlert.style.display = 'none';
+      authAlert.textContent = '';
+    }
+
+    async function checkAuth() {
+      const token = localStorage.getItem('auth_jwt_token');
+      if (!token) {
         loginModal.style.display = 'flex';
-      } else {
-        loginModal.style.display = 'none';
-        initSavedDevice();
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/verify', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.valid) {
+          loginModal.style.display = 'none';
+          initSavedDevice();
+        } else {
+          handleSignOut();
+        }
+      } catch (err) {
+        loginModal.style.display = 'flex';
       }
     }
 
-    function handleLogin() {
-      const user = document.getElementById('usernameInput').value.trim();
-      if (user.length > 0) {
-        sessionStorage.setItem('is_logged_in', 'true');
-        sessionStorage.setItem('user_name', user);
+    async function handleLogin(e) {
+      e.preventDefault();
+      clearAuthAlert();
+
+      const username = document.getElementById('usernameInput').value.trim();
+      const password = document.getElementById('passwordInput').value.trim();
+
+      if (!username || !password) {
+        showAuthAlert('Please enter your username and password.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          showAuthAlert(data.message || 'Invalid username or password.');
+          return;
+        }
+
+        localStorage.setItem('auth_jwt_token', data.token);
+        localStorage.setItem('auth_user_name', data.username);
         loginModal.style.display = 'none';
         initSavedDevice();
-      } else {
-        document.getElementById('loginError').style.display = 'block';
+      } catch (err) {
+        showAuthAlert('Could not connect to server.');
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      clearAuthAlert();
+
+      const username = document.getElementById('regUsernameInput').value.trim();
+      const password = document.getElementById('regPasswordInput').value;
+      const confirmPassword = document.getElementById('regConfirmPasswordInput').value;
+
+      if (!username || !password || !confirmPassword) {
+        showAuthAlert('All fields are required.');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showAuthAlert('Password does not match.');
+        return;
+      }
+
+      if (password.length < 6) {
+        showAuthAlert('Password must be at least 6 characters.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, confirmPassword })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          showAuthAlert(data.message || 'Registration failed.');
+          return;
+        }
+
+        showAuthAlert(data.message, true);
+        document.getElementById('registerForm').reset();
+
+        setTimeout(() => {
+          switchAuthTab('login');
+          document.getElementById('usernameInput').value = username;
+          document.getElementById('passwordInput').focus();
+        }, 1500);
+      } catch (err) {
+        showAuthAlert('Network error during registration.');
       }
     }
 
     function handleSignOut() {
-      sessionStorage.removeItem('is_logged_in');
+      localStorage.removeItem('auth_jwt_token');
+      localStorage.removeItem('auth_user_name');
+      sessionStorage.clear();
       location.reload();
     }
 
+    // ==========================================
+    // 2. PAIRING & PERSISTENCE
+    // ==========================================
     function initSavedDevice() {
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
@@ -446,6 +598,7 @@
     function handleConnectDevice() {
       const id = deviceIdInput.value.trim().toUpperCase();
       if (!id) return;
+
       currentDeviceId = id;
       localStorage.setItem('last_paired_device_id', id);
       pairedLabel.innerText = `Paired Device: ${id}`;
@@ -454,12 +607,13 @@
     }
 
     function registerDeviceWithSocket(id) {
-      if (!id) return;
-      if (socket.connected) {
-        socket.emit('pair_viewer', { deviceId: id });
-      }
+      if (!id || !socket.connected) return;
+      socket.emit('pair_viewer', { deviceId: id });
     }
 
+    // ==========================================
+    // 3. SOCKET & STREAMING
+    // ==========================================
     socket.on('connect', () => {
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
@@ -487,16 +641,6 @@
         streamBtn.innerText = 'Phone Offline';
         streamBtn.style.background = '#475569';
         updateSignalBadge('lost', null);
-      }
-    });
-
-    // Render incoming video frames
-    socket.on('video_frame', (base64Frame) => {
-      if (base64Frame) {
-        streamCanvas.src = 'data:image/jpeg;base64,' + base64Frame;
-        if (isStreaming) {
-          connStatus.innerText = 'Live Streaming Active';
-        }
       }
     });
 
@@ -544,7 +688,7 @@
         isStreaming = true;
       } else {
         socket.emit('command', { action: 'stop_stream' });
-        streamCanvas.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' fill='%23000'></svg>";
+        streamCanvas.src = '';
         streamBtn.innerText = 'Start Remote View';
         streamBtn.style.background = '#2563eb';
         switchCamBtn.disabled = true;
@@ -552,6 +696,12 @@
         isStreaming = false;
       }
     }
+
+    socket.on('video_frame', (base64Data) => {
+      if (!isStreaming) return;
+      streamCanvas.src = `data:image/jpeg;base64,${base64Data}`;
+      connStatus.innerText = 'Live Streaming Active';
+    });
 
     socket.on('telemetry', (data) => {
       if (data.gps) {

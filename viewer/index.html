@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Remote Live Stream & Telemetry</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <!-- Leaflet Map Assets -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
   <style>
     :root {
       --bg-main: #0b1120;
@@ -128,7 +133,7 @@
 
     .container {
       display: grid;
-      grid-template-columns: 2fr 1fr;
+      grid-template-columns: 2fr 1.15fr;
       gap: 24px;
       width: 100%;
       max-width: 1180px;
@@ -148,15 +153,26 @@
 
     .video-card {
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
       background: #000;
-      min-height: 480px;
+      min-height: 540px;
+      position: relative;
+    }
+
+    .video-card-header {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
     #streamCanvas {
       width: 100%;
-      height: 480px;
+      height: 100%;
+      min-height: 480px;
       border-radius: 10px;
       background: #000;
       object-fit: contain;
@@ -171,8 +187,8 @@
     }
 
     .metric {
-      margin-bottom: 14px;
-      padding: 14px 16px;
+      margin-bottom: 12px;
+      padding: 12px 14px;
       background: var(--card-inner);
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.04);
@@ -187,13 +203,24 @@
     }
 
     .metric-value {
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 600;
-      margin-top: 6px;
+      margin-top: 5px;
       display: flex;
       align-items: center;
       gap: 8px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* Embedded GPS Map */
+    #telemetry-map {
+      height: 180px;
+      width: 100%;
+      border-radius: 8px;
+      margin-top: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      z-index: 5;
     }
 
     .badge {
@@ -211,7 +238,7 @@
     .badge-weak { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
     .badge-lost { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
 
-    /* ================= AUTH MODAL ================= */
+    /* ================= AUTH & PAIR MODALS ================= */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
@@ -338,6 +365,10 @@
 
   <div class="container">
     <div class="video-card">
+      <div class="video-card-header">
+        <span>Live Feed</span>
+        <span id="liveBadge" style="display:none; color: #ef4444; font-weight: bold;">● LIVE</span>
+      </div>
       <img id="streamCanvas" alt="Live Feed" />
     </div>
 
@@ -358,13 +389,14 @@
       </div>
 
       <div class="metric">
-        <div class="metric-title">Coordinates (DMS)</div>
-        <div id="coords" class="metric-value">--</div>
+        <div class="metric-title">GPS Location & Tracking</div>
+        <div id="coords" class="metric-value">-- , --</div>
+        <div id="telemetry-map"></div>
       </div>
 
       <div class="metric">
-        <div class="metric-title">Heading / Orientation</div>
-        <div id="heading" class="metric-value">--°</div>
+        <div class="metric-title">Speed & Heading</div>
+        <div id="speed-heading" class="metric-value">0.0 km/h | --°</div>
       </div>
 
       <div class="metric">
@@ -423,6 +455,7 @@
     const streamBtn = document.getElementById('streamBtn');
     const switchCamBtn = document.getElementById('switchCamBtn');
     const signalValue = document.getElementById('signal-value');
+    const liveBadge = document.getElementById('liveBadge');
 
     const loginModal = document.getElementById('loginModal');
     const pairModal = document.getElementById('pairModal');
@@ -433,6 +466,28 @@
     let isStreaming = false;
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
+    let isRenderingFrame = false;
+
+    // Leaflet Map instance
+    let map = null;
+    let marker = null;
+    let accuracyCircle = null;
+    let pathPolyline = null;
+    let pathHistory = [];
+
+    function initMap() {
+      if (map) return;
+      map = L.map('telemetry-map', {
+        zoomControl: true,
+        attributionControl: false
+      }).setView([10.3157, 123.8854], 14);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+      }).addTo(map);
+
+      pathPolyline = L.polyline([], { color: '#38bdf8', weight: 3, opacity: 0.8 }).addTo(map);
+    }
 
     // ==========================================
     // 1. AUTHENTICATION (JWT + BCRYPT)
@@ -574,6 +629,7 @@
     // 2. PAIRING & PERSISTENCE
     // ==========================================
     function initSavedDevice() {
+      initMap();
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
         currentDeviceId = savedId;
@@ -640,6 +696,7 @@
         switchCamBtn.disabled = true;
         streamBtn.innerText = 'Phone Offline';
         streamBtn.style.background = '#475569';
+        liveBadge.style.display = 'none';
         updateSignalBadge('lost', null);
       }
     });
@@ -685,6 +742,7 @@
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
         switchCamBtn.disabled = false;
+        liveBadge.style.display = 'inline';
         isStreaming = true;
       } else {
         socket.emit('command', { action: 'stop_stream' });
@@ -692,6 +750,7 @@
         streamBtn.innerText = 'Start Remote View';
         streamBtn.style.background = '#2563eb';
         switchCamBtn.disabled = true;
+        liveBadge.style.display = 'none';
         connStatus.innerText = `${currentDeviceId} Online & Ready`;
         isStreaming = false;
       }
@@ -699,20 +758,45 @@
 
     socket.on('video_frame', (base64Data) => {
       if (!isStreaming) return;
-      streamCanvas.src = `data:image/jpeg;base64,${base64Data}`;
+      if (!isRenderingFrame) {
+        isRenderingFrame = true;
+        streamCanvas.onload = () => { isRenderingFrame = false; };
+        streamCanvas.onerror = () => { isRenderingFrame = false; };
+        streamCanvas.src = `data:image/jpeg;base64,${base64Data}`;
+      }
       connStatus.innerText = 'Live Streaming Active';
     });
 
     socket.on('telemetry', (data) => {
       if (data.gps) {
-        document.getElementById('coords').innerText = `${data.gps.latitude.toFixed(5)}, ${data.gps.longitude.toFixed(5)}`;
-        if (data.gps.heading !== undefined) {
-          document.getElementById('heading').innerText = `${data.gps.heading.toFixed(1)}°`;
+        const { latitude, longitude, accuracy, speed, heading } = data.gps;
+        const lat = parseFloat(latitude);
+        const lng = parseFloat(longitude);
+        const latLng = [lat, lng];
+
+        document.getElementById('coords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)} (±${Math.round(accuracy || 0)}m)`;
+
+        const speedKmH = (Math.max(0, speed || 0) * 3.6).toFixed(1);
+        const headingDeg = heading !== undefined && heading >= 0 ? `${Math.round(heading)}°` : '--°';
+        document.getElementById('speed-heading').innerText = `${speedKmH} km/h | ${headingDeg}`;
+
+        if (!marker) {
+          marker = L.marker(latLng).addTo(map);
+          accuracyCircle = L.circle(latLng, { radius: accuracy || 10, color: '#38bdf8', fillOpacity: 0.15 }).addTo(map);
+          map.setView(latLng, 15);
+        } else {
+          marker.setLatLng(latLng);
+          accuracyCircle.setLatLng(latLng);
+          accuracyCircle.setRadius(accuracy || 10);
         }
+
+        pathHistory.push(latLng);
+        pathPolyline.setLatLngs(pathHistory);
       }
+
       if (data.orientation) {
         document.getElementById('accel').innerText = 
-          `P: ${data.orientation.pitch.toFixed(1)} | R: ${data.orientation.roll.toFixed(1)} | A: ${data.orientation.azimuth.toFixed(1)}`;
+          `P: ${data.orientation.pitch.toFixed(1)}° | R: ${data.orientation.roll.toFixed(1)}° | A: ${data.orientation.azimuth.toFixed(1)}°`;
       }
     });
 

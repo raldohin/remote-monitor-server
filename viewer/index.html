@@ -466,7 +466,10 @@
     let isStreaming = false;
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
-    let isRenderingFrame = false;
+
+    // Zero-lag rendering pipeline variables
+    let isFrameBusy = false;
+    let pendingFrame = null;
 
     // Leaflet Map instance
     let map = null;
@@ -474,12 +477,15 @@
     let accuracyCircle = null;
     let pathPolyline = null;
     let pathHistory = [];
+    let lastLat = null;
+    let lastLng = null;
 
     function initMap() {
       if (map) return;
       map = L.map('telemetry-map', {
         zoomControl: true,
-        attributionControl: false
+        attributionControl: false,
+        preferCanvas: true
       }).setView([10.3157, 123.8854], 14);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -756,13 +762,31 @@
       }
     }
 
+    // Zero-lag image consumer: drops stale backlog frames
+    streamCanvas.onload = () => {
+      isFrameBusy = false;
+      if (pendingFrame) {
+        const next = pendingFrame;
+        pendingFrame = null;
+        renderFrame(next);
+      }
+    };
+    streamCanvas.onerror = () => {
+      isFrameBusy = false;
+    };
+
+    function renderFrame(base64Data) {
+      isFrameBusy = true;
+      streamCanvas.src = `data:image/jpeg;base64,${base64Data}`;
+    }
+
     socket.on('video_frame', (base64Data) => {
       if (!isStreaming) return;
-      if (!isRenderingFrame) {
-        isRenderingFrame = true;
-        streamCanvas.onload = () => { isRenderingFrame = false; };
-        streamCanvas.onerror = () => { isRenderingFrame = false; };
-        streamCanvas.src = `data:image/jpeg;base64,${base64Data}`;
+      if (!isFrameBusy) {
+        renderFrame(base64Data);
+      } else {
+        // Drop previous waiting frames and hold only the newest frame
+        pendingFrame = base64Data;
       }
       connStatus.innerText = 'Live Streaming Active';
     });
@@ -780,18 +804,32 @@
         const headingDeg = heading !== undefined && heading >= 0 ? `${Math.round(heading)}°` : '--°';
         document.getElementById('speed-heading').innerText = `${speedKmH} km/h | ${headingDeg}`;
 
-        if (!marker) {
-          marker = L.marker(latLng).addTo(map);
-          accuracyCircle = L.circle(latLng, { radius: accuracy || 10, color: '#38bdf8', fillOpacity: 0.15 }).addTo(map);
-          map.setView(latLng, 15);
-        } else {
-          marker.setLatLng(latLng);
-          accuracyCircle.setLatLng(latLng);
-          accuracyCircle.setRadius(accuracy || 10);
-        }
+        // Asynchronous throttled map update (prevents UI blocking)
+        requestAnimationFrame(() => {
+          if (!map) return;
+          if (!marker) {
+            marker = L.marker(latLng).addTo(map);
+            accuracyCircle = L.circle(latLng, { radius: accuracy || 10, color: '#38bdf8', fillOpacity: 0.15 }).addTo(map);
+            map.setView(latLng, 15);
+            lastLat = lat;
+            lastLng = lng;
+          } else {
+            marker.setLatLng(latLng);
+            accuracyCircle.setLatLng(latLng);
+            accuracyCircle.setRadius(accuracy || 10);
 
-        pathHistory.push(latLng);
-        pathPolyline.setLatLngs(pathHistory);
+            // Only re-center if device moved noticeably (>0.0001 deg ~11 meters)
+            if (lastLat === null || Math.abs(lat - lastLat) > 0.0001 || Math.abs(lng - lastLng) > 0.0001) {
+              map.panTo(latLng, { animate: true, duration: 0.5 });
+              lastLat = lat;
+              lastLng = lng;
+            }
+          }
+
+          pathHistory.push(latLng);
+          if (pathHistory.length > 200) pathHistory.shift();
+          pathPolyline.setLatLngs(pathHistory);
+        });
       }
 
       if (data.orientation) {

@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const { DatabaseSync } = require('node:sqlite');
+const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -22,35 +22,38 @@ const io = new Server(server, {
 });
 
 // ==========================================
-// 1. BUILT-IN SQLITE & PERSISTENT DEFAULT USER
+// 1. NEON CLOUD POSTGRESQL (LIFETIME STORAGE)
 // ==========================================
-const db = new DatabaseSync(path.join(__dirname, 'users.db'));
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-console.log('Connected to Native SQLite Database.');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-const initDefaultUser = async () => {
+const initDatabase = async () => {
   try {
-    const check = db.prepare(`SELECT * FROM users WHERE username = ?`);
-    const exists = check.get('admin');
-    if (!exists) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(255) UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Connected to Neon Cloud PostgreSQL Database.');
+
+    // Seed default admin account if table is new
+    const checkAdmin = await pool.query('SELECT * FROM users WHERE username = $1', ['admin']);
+    if (checkAdmin.rows.length === 0) {
       const salt = await bcrypt.genSalt(10);
       const hash = await bcrypt.hash('admin12345', salt);
-      const insert = db.prepare(`INSERT INTO users (username, password_hash) VALUES (?, ?)`);
-      insert.run('admin', hash);
+      await pool.query('INSERT INTO users (username, password_hash) VALUES ($1, $2)', ['admin', hash]);
       console.log('Default user (admin / admin12345) ready.');
     }
   } catch (err) {
-    console.error('Error seeding default user:', err);
+    console.error('Database initialization error:', err.message);
   }
 };
-initDefaultUser();
+initDatabase();
 
 // ==========================================
 // 2. AUTHENTICATION ENDPOINTS
@@ -69,15 +72,18 @@ app.post('/api/register', async (req, res) => {
   }
 
   try {
+    const cleanUsername = username.trim().toLowerCase();
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const insert = db.prepare(`INSERT INTO users (username, password_hash) VALUES (?, ?)`);
-    insert.run(username.trim().toLowerCase(), passwordHash);
+    await pool.query(
+      'INSERT INTO users (username, password_hash) VALUES ($1, $2)',
+      [cleanUsername, passwordHash]
+    );
 
     return res.status(201).json({ success: true, message: 'Account created successfully! Please log in.' });
   } catch (err) {
-    if (err.message && err.message.includes('UNIQUE constraint failed')) {
+    if (err.code === '23505') {
       return res.status(409).json({ success: false, message: 'Username is already taken.' });
     }
     return res.status(500).json({ success: false, message: 'Registration failed.' });
@@ -92,13 +98,16 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    const query = db.prepare(`SELECT * FROM users WHERE username = ?`);
-    const user = query.get(username.trim().toLowerCase());
+    const result = await pool.query(
+      'SELECT * FROM users WHERE username = $1',
+      [username.trim().toLowerCase()]
+    );
 
-    if (!user) {
+    if (result.rows.length === 0) {
       return res.status(401).json({ success: false, message: 'Invalid username or password.' });
     }
 
+    const user = result.rows[0];
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid username or password.' });
@@ -107,7 +116,7 @@ app.post('/api/login', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
     return res.status(200).json({

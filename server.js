@@ -35,7 +35,6 @@ db.exec(`
 `);
 console.log('Connected to Native SQLite Database.');
 
-// Auto-seed admin user so restarts on Render don't lock you out
 const initDefaultUser = async () => {
   try {
     const check = db.prepare(`SELECT * FROM users WHERE username = ?`);
@@ -189,9 +188,13 @@ io.on('connection', (socket) => {
     io.to(`room_${cleanId}`).emit('sender_status', { available: true, deviceId: cleanId });
   });
 
-  socket.on('video_frame', (frameData) => {
+  // Flow-controlled frame relay with immediate acknowledgement
+  socket.on('video_frame', (frameData, ackCallback) => {
     if (boundDeviceId) {
       socket.to(`room_${boundDeviceId}`).emit('video_frame', frameData);
+    }
+    if (typeof ackCallback === 'function') {
+      ackCallback({ ok: true });
     }
   });
 
@@ -204,12 +207,6 @@ io.on('connection', (socket) => {
   socket.on('pong_viewer', (timestamp) => {
     if (boundDeviceId) {
       socket.to(`room_${boundDeviceId}`).emit('pong_viewer', timestamp);
-    }
-  });
-
-  socket.on('signal', (data) => {
-    if (boundDeviceId) {
-      socket.to(`room_${boundDeviceId}`).emit('signal', data);
     }
   });
 

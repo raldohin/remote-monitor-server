@@ -499,6 +499,7 @@
     let isStreaming = false;
     let isSenderAvailable = false;
     let peerConnection = null;
+    let candidateQueue = [];
 
     const rtcConfig = {
       iceServers: [
@@ -521,6 +522,12 @@
     }
 
     function createPeerConnection() {
+      if (peerConnection) {
+        try { peerConnection.close(); } catch(e) {}
+        peerConnection = null;
+      }
+      candidateQueue = [];
+
       peerConnection = new RTCPeerConnection(rtcConfig);
 
       peerConnection.onicecandidate = (event) => {
@@ -532,7 +539,9 @@
       peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
           remoteVideo.srcObject = event.streams[0];
+          remoteVideo.play().catch(() => {});
           updateSignalBadge('excellent', 45);
+          liveBadge.style.display = 'inline';
           streamResolutionInfo.innerText = `P2P Video Stream Active`;
         }
       };
@@ -542,24 +551,40 @@
 
     async function startWebRTC() {
       createPeerConnection();
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.emit('webrtc_offer', { sdp: offer, deviceId: currentDeviceId });
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('webrtc_offer', { sdp: offer, deviceId: currentDeviceId });
+      } catch (err) {
+        console.error('Failed to create WebRTC offer:', err);
+      }
     }
 
     socket.on('webrtc_answer', async (data) => {
       if (peerConnection && data.sdp) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        try {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          while (candidateQueue.length > 0) {
+            const cand = candidateQueue.shift();
+            await peerConnection.addIceCandidate(cand);
+          }
+        } catch (e) {
+          console.error('Error applying remote description:', e);
+        }
       }
     });
 
     socket.on('ice_candidate', async (data) => {
-      if (peerConnection && data.candidate) {
+      if (!data.candidate) return;
+      const candidate = new RTCIceCandidate(data.candidate);
+      if (peerConnection && peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
         try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+          await peerConnection.addIceCandidate(candidate);
         } catch (e) {
           console.error('ICE candidate add error', e);
         }
+      } else {
+        candidateQueue.push(candidate);
       }
     });
 
@@ -577,18 +602,22 @@
         handleQualityChange(qualitySelect.value);
         handleFpsChange(fpsSelect.value);
         socket.emit('command', { action: 'start_stream' });
-        startWebRTC();
+        
+        setTimeout(() => {
+          startWebRTC();
+        }, 200);
+
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
         switchCamBtn.disabled = false;
-        liveBadge.style.display = 'inline';
         isStreaming = true;
       } else {
         socket.emit('command', { action: 'stop_stream' });
         if (peerConnection) {
-          peerConnection.close();
+          try { peerConnection.close(); } catch(e) {}
           peerConnection = null;
         }
+        candidateQueue = [];
         remoteVideo.srcObject = null;
         streamBtn.innerText = 'Start Remote View';
         streamBtn.style.background = '#2563eb';

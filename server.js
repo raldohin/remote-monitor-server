@@ -41,7 +41,6 @@ const initDatabase = async () => {
     `);
     console.log('✅ Connected to Neon Cloud PostgreSQL Database.');
 
-    // Seed default admin account if table is new
     const checkAdmin = await pool.query('SELECT * FROM users WHERE username = $1', ['admin']);
     if (checkAdmin.rows.length === 0) {
       const salt = await bcrypt.genSalt(10);
@@ -197,13 +196,22 @@ io.on('connection', (socket) => {
     io.to(`room_${cleanId}`).emit('sender_status', { available: true, deviceId: cleanId });
   });
 
-  // Flow-controlled frame relay with immediate acknowledgement
-  socket.on('video_frame', (frameData, ackCallback) => {
+  // WebRTC Signaling Handshake (Zero Server Bandwidth)
+  socket.on('webrtc_offer', (data) => {
     if (boundDeviceId) {
-      socket.to(`room_${boundDeviceId}`).emit('video_frame', frameData);
+      socket.to(`room_${boundDeviceId}`).emit('webrtc_offer', data);
     }
-    if (typeof ackCallback === 'function') {
-      ackCallback({ ok: true });
+  });
+
+  socket.on('webrtc_answer', (data) => {
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('webrtc_answer', data);
+    }
+  });
+
+  socket.on('ice_candidate', (data) => {
+    if (boundDeviceId) {
+      socket.to(`room_${boundDeviceId}`).emit('ice_candidate', data);
     }
   });
 

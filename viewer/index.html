@@ -90,6 +90,36 @@
       flex-wrap: wrap;
     }
 
+    /* Mode Segmented Switch */
+    .mode-switch-container {
+      display: flex;
+      background: #0f172a;
+      padding: 3px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+    }
+
+    .mode-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mode-btn.active {
+      background: #1e293b;
+      color: #38bdf8;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
     .control-select {
       background: #1e293b;
       color: #38bdf8;
@@ -395,6 +425,12 @@
       <p id="paired-label" class="paired-device-text">No Device Paired</p>
     </div>
 
+    <!-- Main System Mode Switcher -->
+    <div class="mode-switch-container">
+      <button id="modeStandardBtn" class="mode-btn active" onclick="setSystemMode('standard')">📱 Standard View</button>
+      <button id="modeDashcamBtn" class="mode-btn" onclick="setSystemMode('dashcam')">🚗 Dashcam Sentry</button>
+    </div>
+
     <div class="btn-group">
       <!-- Quality Profile -->
       <select id="qualitySelect" class="control-select" onchange="handleQualityChange(this.value)">
@@ -412,14 +448,14 @@
         <option value="60">60 FPS (Ultra Smooth 🔥)</option>
       </select>
 
-      <!-- 70mai Category Selector -->
-      <select id="recordCategorySelect" class="control-select" onchange="handleCategoryChange(this.value)">
-        <option value="normal" selected>🚗 Normal (Loop)</option>
-        <option value="event">⚠️ Event / Crash</option>
-        <option value="parking">🅿️ Parking Guard</option>
+      <!-- 70mai Dashcam Categories (Visible only in Dashcam Mode) -->
+      <select id="dashcamCategorySelect" class="control-select" style="display: none;" onchange="handleCategoryChange(this.value)">
+        <option value="normal" selected>🚗 Normal (Loop Clip)</option>
+        <option value="event">⚠️ Event (Crash Lock)</option>
+        <option value="parking">🅿️ Parking Guard (30s)</option>
       </select>
 
-      <!-- Local Dashcam Record Toggle -->
+      <!-- Record Toggle Button -->
       <button id="recordBtn" class="btn btn-secondary" onclick="toggleLocalRecording()" disabled>
         <span>⏺️</span> <span id="recordBtnText">Record Clip</span>
       </button>
@@ -444,13 +480,14 @@
     </div>
 
     <div class="telemetry-card">
-      <h3>Live Telemetry & Dashcam</h3>
+      <h3>Live Telemetry & Status</h3>
 
+      <!-- System Mode Telemetry Item -->
       <div class="metric">
-        <div class="metric-title">Local Dashcam Recording State</div>
+        <div class="metric-title">Operating Mode & Recording State</div>
         <div id="recording-status" class="metric-value">
-          <span>Standby (Not Recording)</span>
-          <span class="badge badge-normal" id="activeCategoryBadge">Normal</span>
+          <span id="modeDisplayLabel">Standard Camera (Standby)</span>
+          <span class="badge badge-normal" id="activeCategoryBadge">Live View</span>
         </div>
       </div>
 
@@ -535,9 +572,12 @@
     const recordingBadge = document.getElementById('recordingBadge');
     const recordingStatus = document.getElementById('recording-status');
     const activeCategoryBadge = document.getElementById('activeCategoryBadge');
+    const modeDisplayLabel = document.getElementById('modeDisplayLabel');
     const qualitySelect = document.getElementById('qualitySelect');
     const fpsSelect = document.getElementById('fpsSelect');
-    const recordCategorySelect = document.getElementById('recordCategorySelect');
+    const dashcamCategorySelect = document.getElementById('dashcamCategorySelect');
+    const modeStandardBtn = document.getElementById('modeStandardBtn');
+    const modeDashcamBtn = document.getElementById('modeDashcamBtn');
     const recordBtn = document.getElementById('recordBtn');
     const recordBtnText = document.getElementById('recordBtnText');
     const streamResolutionInfo = document.getElementById('streamResolutionInfo');
@@ -548,6 +588,7 @@
     const authAlert = document.getElementById('authAlert');
 
     let currentDeviceId = '';
+    let currentMode = 'standard';
     let isStreaming = false;
     let isRecording = false;
     let isSenderAvailable = false;
@@ -574,6 +615,30 @@
       map = L.map('telemetry-map', { zoomControl: true, attributionControl: false, preferCanvas: true }).setView([10.3157, 123.8854], 14);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
       pathPolyline = L.polyline([], { color: '#38bdf8', weight: 3, opacity: 0.8 }).addTo(map);
+    }
+
+    function setSystemMode(mode) {
+      currentMode = mode;
+      if (mode === 'standard') {
+        modeStandardBtn.className = 'mode-btn active';
+        modeDashcamBtn.className = 'mode-btn';
+        dashcamCategorySelect.style.display = 'none';
+        recordBtnText.innerText = isRecording ? 'Stop Recording' : 'Record Clip';
+        modeDisplayLabel.innerText = 'Standard Camera';
+        activeCategoryBadge.innerText = 'Standard';
+        activeCategoryBadge.className = 'badge badge-normal';
+      } else {
+        modeDashcamBtn.className = 'mode-btn active';
+        modeStandardBtn.className = 'mode-btn';
+        dashcamCategorySelect.style.display = 'inline-block';
+        recordBtnText.innerText = isRecording ? 'Stop Dashcam' : 'Start Dashcam';
+        modeDisplayLabel.innerText = 'Dashcam Mode';
+        handleCategoryChange(dashcamCategorySelect.value);
+      }
+
+      if (currentDeviceId) {
+        socket.emit('command', { action: 'set_system_mode', mode: currentMode, deviceId: currentDeviceId });
+      }
     }
 
     function createPeerConnection() {
@@ -661,9 +726,10 @@
 
     function toggleLocalRecording() {
       if (!isRecording) {
-        const category = recordCategorySelect.value;
+        const category = currentMode === 'dashcam' ? dashcamCategorySelect.value : 'standard';
         socket.emit('command', { 
           action: 'start_recording', 
+          mode: currentMode,
           category,
           quality: qualitySelect.value,
           fps: parseInt(fpsSelect.value, 10),
@@ -671,35 +737,41 @@
         });
         isRecording = true;
         recordBtn.className = 'btn btn-rec';
-        recordBtnText.innerText = 'Stop Recording';
-        startRecordingTimer();
+        recordBtnText.innerText = currentMode === 'dashcam' ? 'Stop Dashcam' : 'Stop Recording';
+        startRecordingTimer(category);
       } else {
         socket.emit('command', { action: 'stop_recording', deviceId: currentDeviceId });
         isRecording = false;
         recordBtn.className = 'btn btn-secondary';
-        recordBtnText.innerText = 'Record Clip';
+        recordBtnText.innerText = currentMode === 'dashcam' ? 'Start Dashcam' : 'Record Clip';
         stopRecordingTimer();
       }
     }
 
-    function startRecordingTimer() {
+    function startRecordingTimer(category) {
       recSeconds = 0;
       recordingBadge.style.display = 'inline';
       recordingBadge.innerText = '⏺ REC [00:00]';
-      recordingStatus.innerHTML = `<span>Recording Active</span> <span class="badge badge-${recordCategorySelect.value}">${recordCategorySelect.value.toUpperCase()}</span>`;
+      recordingStatus.innerHTML = `<span>Recording Active</span> <span class="badge badge-${category}">${category.toUpperCase()}</span>`;
       clearInterval(recTimerInterval);
+      
       recTimerInterval = setInterval(() => {
         recSeconds++;
         const mins = String(Math.floor(recSeconds / 60)).padStart(2, '0');
         const secs = String(recSeconds % 60).padStart(2, '0');
         recordingBadge.innerText = `⏺ REC [${mins}:${secs}]`;
+
+        if (currentMode === 'dashcam' && category === 'parking' && recSeconds >= 30) {
+          toggleLocalRecording();
+        }
       }, 1000);
     }
 
     function stopRecordingTimer() {
       clearInterval(recTimerInterval);
       recordingBadge.style.display = 'none';
-      recordingStatus.innerHTML = `<span>Standby (Saved to Phone)</span> <span class="badge badge-${recordCategorySelect.value}">${recordCategorySelect.value.toUpperCase()}</span>`;
+      const category = currentMode === 'dashcam' ? dashcamCategorySelect.value : 'standard';
+      recordingStatus.innerHTML = `<span>Standby (Saved to Storage)</span> <span class="badge badge-${category}">${category.toUpperCase()}</span>`;
     }
 
     function toggleStream() {

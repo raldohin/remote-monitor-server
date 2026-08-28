@@ -90,7 +90,7 @@
       flex-wrap: wrap;
     }
 
-    .quality-select {
+    .control-select {
       background: #1e293b;
       color: #38bdf8;
       border: 1px solid #334155;
@@ -103,7 +103,7 @@
       transition: all 0.2s ease;
     }
 
-    .quality-select:focus {
+    .control-select:focus {
       border-color: #38bdf8;
     }
 
@@ -374,12 +374,21 @@
     </div>
 
     <div class="btn-group">
-      <!-- Quality Selector -->
-      <select id="qualitySelect" class="quality-select" onchange="handleQualityChange(this.value)">
-        <option value="low">⚡ Ultra-Low Latency (Fast / Low Data)</option>
-        <option value="medium" selected>⚖️ Smooth Standard (~480p / Balanced)</option>
-        <option value="high">📺 High Definition (720p HD)</option>
-        <option value="max">💎 Maximum Clarity (1080p FHD)</option>
+      <!-- Resolution / Quality Selector -->
+      <select id="qualitySelect" class="control-select" onchange="handleQualityChange(this.value)" title="Select Image Resolution">
+        <option value="low">Low Quality (240p - Saves Data & Battery 🔋)</option>
+        <option value="medium" selected>Medium Quality (480p - Balanced ⚖️)</option>
+        <option value="high">High Quality (720p HD - Consumes More Data 📺)</option>
+        <option value="max">Max Quality (1080p FHD - High Data Usage 💎)</option>
+      </select>
+
+      <!-- Frame Rate (FPS) Selector -->
+      <select id="fpsSelect" class="control-select" onchange="handleFpsChange(this.value)" title="Select Target Framerate">
+        <option value="15">15 FPS (Battery & Data Saver 🔋)</option>
+        <option value="24" selected>24 FPS (Cinematic / Balanced ⚖️)</option>
+        <option value="30">30 FPS (Standard Smooth 📱)</option>
+        <option value="60">60 FPS (Ultra-High Motion - High Data/Battery 🔥)</option>
+        <option value="90">90 FPS (Extreme Fluidity - Max Data/Battery ⚡)</option>
       </select>
 
       <button class="btn btn-secondary" onclick="openPairModal()">🔑 Change Device</button>
@@ -482,6 +491,7 @@
     const signalValue = document.getElementById('signal-value');
     const liveBadge = document.getElementById('liveBadge');
     const qualitySelect = document.getElementById('qualitySelect');
+    const fpsSelect = document.getElementById('fpsSelect');
     const streamResolutionInfo = document.getElementById('streamResolutionInfo');
 
     const loginModal = document.getElementById('loginModal');
@@ -494,7 +504,6 @@
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
 
-    // Direct GPU off-screen image element for canvas painting
     const offscreenImg = new Image();
 
     let map = null;
@@ -522,6 +531,16 @@
         socket.emit('command', {
           action: 'set_quality',
           quality: quality,
+          deviceId: currentDeviceId
+        });
+      }
+    }
+
+    function handleFpsChange(fps) {
+      if (currentDeviceId) {
+        socket.emit('command', {
+          action: 'set_fps',
+          fps: parseInt(fps, 10),
           deviceId: currentDeviceId
         });
       }
@@ -747,6 +766,7 @@
       if (!isStreaming) {
         connStatus.innerText = 'Requesting camera stream from phone...';
         handleQualityChange(qualitySelect.value);
+        handleFpsChange(fpsSelect.value);
         socket.emit('command', { action: 'start_stream' });
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
@@ -771,7 +791,7 @@
       if (canvas.width !== offscreenImg.naturalWidth && offscreenImg.naturalWidth > 0) {
         canvas.width = offscreenImg.naturalWidth;
         canvas.height = offscreenImg.naturalHeight;
-        streamResolutionInfo.innerText = `Live Feed (${canvas.width}x${canvas.height})`;
+        streamResolutionInfo.innerText = `Live Feed (${canvas.width}x${canvas.height} @ ${fpsSelect.value} FPS Target)`;
       }
       ctx.drawImage(offscreenImg, 0, 0, canvas.width, canvas.height);
     };

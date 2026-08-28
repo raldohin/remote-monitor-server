@@ -43,6 +43,8 @@
       width: 100%;
       max-width: 1180px;
       margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
     }
 
     .header-titles {
@@ -84,14 +86,32 @@
     .btn-group {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .quality-select {
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #334155;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .quality-select:focus {
+      border-color: #38bdf8;
     }
 
     .btn {
       background: var(--accent-blue);
       color: white;
       border: none;
-      padding: 10px 20px;
+      padding: 10px 18px;
       border-radius: 8px;
       font-size: 0.9rem;
       font-weight: 600;
@@ -212,7 +232,6 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
-    /* Embedded GPS Map */
     #telemetry-map {
       height: 180px;
       width: 100%;
@@ -238,7 +257,6 @@
     .badge-weak { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
     .badge-lost { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
 
-    /* ================= AUTH & PAIR MODALS ================= */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
@@ -356,6 +374,14 @@
     </div>
 
     <div class="btn-group">
+      <!-- Quality Selector -->
+      <select id="qualitySelect" class="quality-select" onchange="handleQualityChange(this.value)">
+        <option value="low">⚡ Ultra-Low Latency (Fast / Low Data)</option>
+        <option value="medium" selected>⚖️ Smooth Standard (~480p / Balanced)</option>
+        <option value="high">📺 High Definition (720p HD)</option>
+        <option value="max">💎 Maximum Clarity (1080p FHD)</option>
+      </select>
+
       <button class="btn btn-secondary" onclick="openPairModal()">🔑 Change Device</button>
       <button id="switchCamBtn" class="btn btn-secondary" onclick="switchCamera()" disabled>🔄 Switch Camera</button>
       <button id="streamBtn" class="btn" onclick="toggleStream()" disabled>Waiting for Phone...</button>
@@ -366,10 +392,10 @@
   <div class="container">
     <div class="video-card">
       <div class="video-card-header">
-        <span>Live Feed</span>
+        <span id="streamResolutionInfo">Live Feed (Ready)</span>
         <span id="liveBadge" style="display:none; color: #ef4444; font-weight: bold;">● LIVE</span>
       </div>
-      <img id="streamCanvas" alt="Live Feed" />
+      <canvas id="streamCanvas" width="640" height="480"></canvas>
     </div>
 
     <div class="telemetry-card">
@@ -400,13 +426,13 @@
       </div>
 
       <div class="metric">
-        <div class="metric-title">Accelerometer (X, Y, Z)</div>
+        <div class="metric-title">Accelerometer (Pitch / Roll / Azimuth)</div>
         <div id="accel" class="metric-value">--</div>
       </div>
     </div>
   </div>
 
-  <!-- AUTHENTICATION MODAL (LOGIN & REGISTER) -->
+  <!-- AUTHENTICATION MODAL -->
   <div id="loginModal" class="modal-overlay">
     <div class="modal-card">
       <div class="auth-tabs">
@@ -414,7 +440,6 @@
         <button id="tabRegister" class="auth-tab" type="button" onclick="switchAuthTab('register')">Create Account</button>
       </div>
 
-      <!-- Sign In Form -->
       <form id="loginForm" onsubmit="handleLogin(event)">
         <p>Enter your credentials to access the remote dashboard</p>
         <input type="text" id="usernameInput" class="form-input" placeholder="Username" required autocomplete="username" />
@@ -422,7 +447,6 @@
         <button type="submit" class="btn modal-btn">Login</button>
       </form>
 
-      <!-- Create Account Form -->
       <form id="registerForm" style="display: none;" onsubmit="handleRegister(event)">
         <p>Create a new account for remote monitoring access</p>
         <input type="text" id="regUsernameInput" class="form-input" placeholder="Choose Username" required autocomplete="username" />
@@ -447,8 +471,9 @@
   </div>
 
   <script>
-    const socket = io();
-    const streamCanvas = document.getElementById('streamCanvas');
+    const socket = io({ transports: ['websocket', 'polling'] });
+    const canvas = document.getElementById('streamCanvas');
+    const ctx = canvas.getContext('2d');
     const phoneStatusDot = document.getElementById('phone-status');
     const connStatus = document.getElementById('conn-status');
     const pairedLabel = document.getElementById('paired-label');
@@ -456,6 +481,8 @@
     const switchCamBtn = document.getElementById('switchCamBtn');
     const signalValue = document.getElementById('signal-value');
     const liveBadge = document.getElementById('liveBadge');
+    const qualitySelect = document.getElementById('qualitySelect');
+    const streamResolutionInfo = document.getElementById('streamResolutionInfo');
 
     const loginModal = document.getElementById('loginModal');
     const pairModal = document.getElementById('pairModal');
@@ -467,11 +494,9 @@
     let lastPongTime = Date.now();
     let isSenderAvailable = false;
 
-    // Zero-lag rendering pipeline variables
-    let isFrameBusy = false;
-    let pendingFrame = null;
+    // Direct GPU off-screen image element for canvas painting
+    const offscreenImg = new Image();
 
-    // Leaflet Map instance
     let map = null;
     let marker = null;
     let accuracyCircle = null;
@@ -488,16 +513,20 @@
         preferCanvas: true
       }).setView([10.3157, 123.8854], 14);
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19
-      }).addTo(map);
-
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
       pathPolyline = L.polyline([], { color: '#38bdf8', weight: 3, opacity: 0.8 }).addTo(map);
     }
 
-    // ==========================================
-    // 1. AUTHENTICATION (JWT + BCRYPT)
-    // ==========================================
+    function handleQualityChange(quality) {
+      if (currentDeviceId) {
+        socket.emit('command', {
+          action: 'set_quality',
+          quality: quality,
+          deviceId: currentDeviceId
+        });
+      }
+    }
+
     function switchAuthTab(tab) {
       clearAuthAlert();
       const isLogin = tab === 'login';
@@ -548,11 +577,6 @@
       const username = document.getElementById('usernameInput').value.trim();
       const password = document.getElementById('passwordInput').value.trim();
 
-      if (!username || !password) {
-        showAuthAlert('Please enter your username and password.');
-        return;
-      }
-
       try {
         const res = await fetch('/api/login', {
           method: 'POST',
@@ -583,20 +607,9 @@
       const password = document.getElementById('regPasswordInput').value;
       const confirmPassword = document.getElementById('regConfirmPasswordInput').value;
 
-      if (!username || !password || !confirmPassword) {
-        showAuthAlert('All fields are required.');
-        return;
-      }
-
-      if (password !== confirmPassword) {
-        showAuthAlert('Password does not match.');
-        return;
-      }
-
-      if (password.length < 6) {
-        showAuthAlert('Password must be at least 6 characters.');
-        return;
-      }
+      if (!username || !password || !confirmPassword) return showAuthAlert('All fields are required.');
+      if (password !== confirmPassword) return showAuthAlert('Password does not match.');
+      if (password.length < 6) return showAuthAlert('Password must be at least 6 characters.');
 
       try {
         const res = await fetch('/api/register', {
@@ -606,14 +619,10 @@
         });
 
         const data = await res.json();
-        if (!res.ok || !data.success) {
-          showAuthAlert(data.message || 'Registration failed.');
-          return;
-        }
+        if (!res.ok || !data.success) return showAuthAlert(data.message || 'Registration failed.');
 
         showAuthAlert(data.message, true);
         document.getElementById('registerForm').reset();
-
         setTimeout(() => {
           switchAuthTab('login');
           document.getElementById('usernameInput').value = username;
@@ -631,9 +640,6 @@
       location.reload();
     }
 
-    // ==========================================
-    // 2. PAIRING & PERSISTENCE
-    // ==========================================
     function initSavedDevice() {
       initMap();
       const savedId = localStorage.getItem('last_paired_device_id');
@@ -673,9 +679,6 @@
       socket.emit('pair_viewer', { deviceId: id });
     }
 
-    // ==========================================
-    // 3. SOCKET & STREAMING
-    // ==========================================
     socket.on('connect', () => {
       const savedId = localStorage.getItem('last_paired_device_id');
       if (savedId) {
@@ -709,13 +712,12 @@
 
     setInterval(() => {
       if (isSenderAvailable && currentDeviceId) {
-        const pingTime = Date.now();
-        socket.emit('ping_phone', pingTime);
+        socket.emit('ping_phone', Date.now());
         if (Date.now() - lastPongTime > 4000) {
           updateSignalBadge('lost', null);
         }
       }
-    }, 1500);
+    }, 2000);
 
     socket.on('pong_viewer', (sentTimestamp) => {
       lastPongTime = Date.now();
@@ -744,6 +746,7 @@
     function toggleStream() {
       if (!isStreaming) {
         connStatus.innerText = 'Requesting camera stream from phone...';
+        handleQualityChange(qualitySelect.value);
         socket.emit('command', { action: 'start_stream' });
         streamBtn.innerText = 'Stop Remote View';
         streamBtn.style.background = '#dc2626';
@@ -752,42 +755,30 @@
         isStreaming = true;
       } else {
         socket.emit('command', { action: 'stop_stream' });
-        streamCanvas.src = '';
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         streamBtn.innerText = 'Start Remote View';
         streamBtn.style.background = '#2563eb';
         switchCamBtn.disabled = true;
         liveBadge.style.display = 'none';
         connStatus.innerText = `${currentDeviceId} Online & Ready`;
+        streamResolutionInfo.innerText = 'Live Feed (Ready)';
         isStreaming = false;
       }
     }
 
-    // Zero-lag image consumer: drops stale backlog frames
-    streamCanvas.onload = () => {
-      isFrameBusy = false;
-      if (pendingFrame) {
-        const next = pendingFrame;
-        pendingFrame = null;
-        renderFrame(next);
+    offscreenImg.onload = () => {
+      if (canvas.width !== offscreenImg.naturalWidth && offscreenImg.naturalWidth > 0) {
+        canvas.width = offscreenImg.naturalWidth;
+        canvas.height = offscreenImg.naturalHeight;
+        streamResolutionInfo.innerText = `Live Feed (${canvas.width}x${canvas.height})`;
       }
-    };
-    streamCanvas.onerror = () => {
-      isFrameBusy = false;
+      ctx.drawImage(offscreenImg, 0, 0, canvas.width, canvas.height);
     };
 
-    function renderFrame(base64Data) {
-      isFrameBusy = true;
-      streamCanvas.src = `data:image/jpeg;base64,${base64Data}`;
-    }
-
-    socket.on('video_frame', (base64Data) => {
+    socket.on('video_frame', (rawBase64) => {
       if (!isStreaming) return;
-      if (!isFrameBusy) {
-        renderFrame(base64Data);
-      } else {
-        // Drop previous waiting frames and hold only the newest frame
-        pendingFrame = base64Data;
-      }
+      offscreenImg.src = 'data:image/jpeg;base64,' + rawBase64;
       connStatus.innerText = 'Live Streaming Active';
     });
 
@@ -799,12 +790,10 @@
         const latLng = [lat, lng];
 
         document.getElementById('coords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)} (±${Math.round(accuracy || 0)}m)`;
-
         const speedKmH = (Math.max(0, speed || 0) * 3.6).toFixed(1);
         const headingDeg = heading !== undefined && heading >= 0 ? `${Math.round(heading)}°` : '--°';
         document.getElementById('speed-heading').innerText = `${speedKmH} km/h | ${headingDeg}`;
 
-        // Asynchronous throttled map update (prevents UI blocking)
         requestAnimationFrame(() => {
           if (!map) return;
           if (!marker) {
@@ -818,7 +807,6 @@
             accuracyCircle.setLatLng(latLng);
             accuracyCircle.setRadius(accuracy || 10);
 
-            // Only re-center if device moved noticeably (>0.0001 deg ~11 meters)
             if (lastLat === null || Math.abs(lat - lastLat) > 0.0001 || Math.abs(lng - lastLng) > 0.0001) {
               map.panTo(latLng, { animate: true, duration: 0.5 });
               lastLat = lat;

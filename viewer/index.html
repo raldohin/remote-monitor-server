@@ -134,6 +134,13 @@
 
     .btn-secondary:hover:not(:disabled) { background: #334155; }
 
+    .btn-rec {
+      background: #dc2626;
+      color: white;
+    }
+
+    .btn-rec:hover:not(:disabled) { background: #b91c1c; }
+
     .btn-danger-outline {
       background: transparent;
       color: #f87171;
@@ -252,6 +259,20 @@
     .badge-medium { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
     .badge-weak { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
     .badge-lost { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+    .badge-normal { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .badge-event { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-parking { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
+
+    .pulse-dot {
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
 
     @media (max-width: 860px) {
       body { padding: 12px; }
@@ -375,6 +396,7 @@
     </div>
 
     <div class="btn-group">
+      <!-- Quality Profile -->
       <select id="qualitySelect" class="control-select" onchange="handleQualityChange(this.value)">
         <option value="low">240p (Low Data 🔋)</option>
         <option value="medium" selected>480p (Standard ⚖️)</option>
@@ -382,12 +404,25 @@
         <option value="max">1080p FHD (Max 💎)</option>
       </select>
 
+      <!-- Target FPS -->
       <select id="fpsSelect" class="control-select" onchange="handleFpsChange(this.value)">
         <option value="15">15 FPS (Battery Saver 🔋)</option>
         <option value="24">24 FPS (Cinematic ⚖️)</option>
         <option value="30" selected>30 FPS (Smooth 📱)</option>
         <option value="60">60 FPS (Ultra Smooth 🔥)</option>
       </select>
+
+      <!-- 70mai Category Selector -->
+      <select id="recordCategorySelect" class="control-select" onchange="handleCategoryChange(this.value)">
+        <option value="normal" selected>🚗 Normal (Loop)</option>
+        <option value="event">⚠️ Event / Crash</option>
+        <option value="parking">🅿️ Parking Guard</option>
+      </select>
+
+      <!-- Local Dashcam Record Toggle -->
+      <button id="recordBtn" class="btn btn-secondary" onclick="toggleLocalRecording()" disabled>
+        <span>⏺️</span> <span id="recordBtnText">Record Clip</span>
+      </button>
 
       <button class="btn btn-secondary" onclick="openPairModal()">🔑 Pair Device</button>
       <button id="switchCamBtn" class="btn btn-secondary" onclick="switchCamera()" disabled>🔄 Flip Cam</button>
@@ -400,13 +435,24 @@
     <div class="video-card">
       <div class="video-card-header">
         <span id="streamResolutionInfo">WebRTC Live Stream (Ready)</span>
-        <span id="liveBadge" style="display:none; color: #ef4444; font-weight: bold;">● P2P LIVE</span>
+        <div>
+          <span id="recordingBadge" style="display:none; color: #ef4444; font-weight: bold; margin-right: 8px;" class="pulse-dot">⏺ REC [00:00]</span>
+          <span id="liveBadge" style="display:none; color: #ef4444; font-weight: bold;">● P2P LIVE</span>
+        </div>
       </div>
       <video id="remoteVideo" autoplay playsinline muted></video>
     </div>
 
     <div class="telemetry-card">
-      <h3>Live Telemetry</h3>
+      <h3>Live Telemetry & Dashcam</h3>
+
+      <div class="metric">
+        <div class="metric-title">Local Dashcam Recording State</div>
+        <div id="recording-status" class="metric-value">
+          <span>Standby (Not Recording)</span>
+          <span class="badge badge-normal" id="activeCategoryBadge">Normal</span>
+        </div>
+      </div>
 
       <div class="metric">
         <div class="metric-title">P2P Latency & WebRTC Link</div>
@@ -486,8 +532,14 @@
     const switchCamBtn = document.getElementById('switchCamBtn');
     const signalValue = document.getElementById('signal-value');
     const liveBadge = document.getElementById('liveBadge');
+    const recordingBadge = document.getElementById('recordingBadge');
+    const recordingStatus = document.getElementById('recording-status');
+    const activeCategoryBadge = document.getElementById('activeCategoryBadge');
     const qualitySelect = document.getElementById('qualitySelect');
     const fpsSelect = document.getElementById('fpsSelect');
+    const recordCategorySelect = document.getElementById('recordCategorySelect');
+    const recordBtn = document.getElementById('recordBtn');
+    const recordBtnText = document.getElementById('recordBtnText');
     const streamResolutionInfo = document.getElementById('streamResolutionInfo');
 
     const loginModal = document.getElementById('loginModal');
@@ -497,9 +549,12 @@
 
     let currentDeviceId = '';
     let isStreaming = false;
+    let isRecording = false;
     let isSenderAvailable = false;
     let peerConnection = null;
     let candidateQueue = [];
+    let recTimerInterval = null;
+    let recSeconds = 0;
 
     const rtcConfig = {
       iceServers: [
@@ -596,6 +651,57 @@
       if (currentDeviceId) socket.emit('command', { action: 'set_fps', fps: parseInt(fps, 10), deviceId: currentDeviceId });
     }
 
+    function handleCategoryChange(category) {
+      activeCategoryBadge.innerText = category.toUpperCase();
+      activeCategoryBadge.className = `badge badge-${category}`;
+      if (currentDeviceId) {
+        socket.emit('command', { action: 'set_record_category', category, deviceId: currentDeviceId });
+      }
+    }
+
+    function toggleLocalRecording() {
+      if (!isRecording) {
+        const category = recordCategorySelect.value;
+        socket.emit('command', { 
+          action: 'start_recording', 
+          category,
+          quality: qualitySelect.value,
+          fps: parseInt(fpsSelect.value, 10),
+          deviceId: currentDeviceId 
+        });
+        isRecording = true;
+        recordBtn.className = 'btn btn-rec';
+        recordBtnText.innerText = 'Stop Recording';
+        startRecordingTimer();
+      } else {
+        socket.emit('command', { action: 'stop_recording', deviceId: currentDeviceId });
+        isRecording = false;
+        recordBtn.className = 'btn btn-secondary';
+        recordBtnText.innerText = 'Record Clip';
+        stopRecordingTimer();
+      }
+    }
+
+    function startRecordingTimer() {
+      recSeconds = 0;
+      recordingBadge.style.display = 'inline';
+      recordingBadge.innerText = '⏺ REC [00:00]';
+      recordingStatus.innerHTML = `<span>Recording Active</span> <span class="badge badge-${recordCategorySelect.value}">${recordCategorySelect.value.toUpperCase()}</span>`;
+      clearInterval(recTimerInterval);
+      recTimerInterval = setInterval(() => {
+        recSeconds++;
+        const mins = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+        const secs = String(recSeconds % 60).padStart(2, '0');
+        recordingBadge.innerText = `⏺ REC [${mins}:${secs}]`;
+      }, 1000);
+    }
+
+    function stopRecordingTimer() {
+      clearInterval(recTimerInterval);
+      recordingBadge.style.display = 'none';
+      recordingStatus.innerHTML = `<span>Standby (Saved to Phone)</span> <span class="badge badge-${recordCategorySelect.value}">${recordCategorySelect.value.toUpperCase()}</span>`;
+    }
+
     function toggleStream() {
       if (!isStreaming) {
         connStatus.innerText = 'Connecting WebRTC P2P...';
@@ -644,12 +750,15 @@
         phoneStatusDot.className = 'status-dot online';
         connStatus.innerText = isStreaming ? 'WebRTC Streaming Active' : `${currentDeviceId || data.deviceId} Online & Ready`;
         streamBtn.disabled = false;
+        recordBtn.disabled = false;
       } else {
         phoneStatusDot.className = 'status-dot';
         connStatus.innerText = `${currentDeviceId || 'Phone'} Offline`;
         streamBtn.disabled = true;
         switchCamBtn.disabled = true;
+        recordBtn.disabled = true;
         liveBadge.style.display = 'none';
+        if (isRecording) stopRecordingTimer();
       }
     });
 
